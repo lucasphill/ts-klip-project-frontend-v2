@@ -29,7 +29,6 @@ import {
   Avatar,
   Tooltip,
   Divider,
-  Statistic,
   Row,
   Col,
   InputNumber,
@@ -70,9 +69,9 @@ const { Text } = Typography
 
 // ─── TYPES ────────────────────────────────────────────────────────────────────
 
-type TaskStatus   = 'todo' | 'in_progress' | 'review' | 'done' | 'cancelled'
+type TaskStatus = 'todo' | 'in_progress' | 'review' | 'done' | 'cancelled'
 type TaskPriority = 'low' | 'medium' | 'high' | 'urgent'
-type FieldType    = 'text' | 'number' | 'date' | 'select' | 'checkbox'
+type FieldType = 'text' | 'number' | 'date' | 'select' | 'checkbox'
 
 interface CustomField {
   id: string
@@ -108,18 +107,18 @@ interface Task {
 // ─── CONSTANTS ────────────────────────────────────────────────────────────────
 
 const STATUS_CONFIG: Record<TaskStatus, { label: string; color: string }> = {
-  todo:        { label: 'A fazer',      color: 'default'    },
+  todo: { label: 'A fazer', color: 'default' },
   in_progress: { label: 'Em progresso', color: 'processing' },
-  review:      { label: 'Em revisão',   color: 'warning'    },
-  done:        { label: 'Concluído',    color: 'success'    },
-  cancelled:   { label: 'Cancelado',    color: 'error'      },
+  review: { label: 'Em revisão', color: 'warning' },
+  done: { label: 'Concluído', color: 'success' },
+  cancelled: { label: 'Cancelado', color: 'error' },
 }
 
 const PRIORITY_CONFIG: Record<TaskPriority, { label: string; color: string }> = {
-  low:    { label: 'Baixa',   color: 'cyan'   },
-  medium: { label: 'Média',   color: 'blue'   },
-  high:   { label: 'Alta',    color: 'orange' },
-  urgent: { label: 'Urgente', color: 'red'    },
+  low: { label: 'Baixa', color: 'cyan' },
+  medium: { label: 'Média', color: 'blue' },
+  high: { label: 'Alta', color: 'orange' },
+  urgent: { label: 'Urgente', color: 'red' },
 }
 
 const PROJECT_COLORS = [
@@ -130,40 +129,40 @@ const PROJECT_COLORS = [
 // ─── MOCK DATA ────────────────────────────────────────────────────────────────
 
 const MOCK_FIELDS: CustomField[] = [
-  { id: 'cf1', name: 'Sprint',       type: 'select',   options: ['Sprint 1', 'Sprint 2', 'Sprint 3', 'Sprint 4'], scope: 'project',   projectIds: ['p1', 'p2'] },
-  { id: 'cf2', name: 'Story Points', type: 'number',   scope: 'project',   projectIds: ['p1', 'p3']              },
-  { id: 'cf3', name: 'Ambiente',     type: 'select',   options: ['Dev', 'Staging', 'Produção'],                    scope: 'project',   projectIds: ['p2']       },
-  { id: 'cf4', name: 'Bloqueado',    type: 'checkbox', scope: 'universal', projectIds: []                         },
-  { id: 'cf5', name: 'Dt. Entrega',  type: 'date',     scope: 'project',   projectIds: ['p2']                     },
+  { id: 'cf1', name: 'Sprint', type: 'select', options: ['Sprint 1', 'Sprint 2', 'Sprint 3', 'Sprint 4'], scope: 'project', projectIds: ['p1', 'p2'] },
+  { id: 'cf2', name: 'Story Points', type: 'number', scope: 'project', projectIds: ['p1', 'p3'] },
+  { id: 'cf3', name: 'Ambiente', type: 'select', options: ['Dev', 'Staging', 'Produção'], scope: 'project', projectIds: ['p2'] },
+  { id: 'cf4', name: 'Bloqueado', type: 'checkbox', scope: 'universal', projectIds: [] },
+  { id: 'cf5', name: 'Dt. Entrega', type: 'date', scope: 'project', projectIds: ['p2'] },
 ]
 
 const MOCK_PROJECTS: Project[] = [
-  { id: 'p1', name: 'Frontend v2', color: '#6366f1', description: 'Redesign do frontend',                     createdAt: '2024-01-01' },
+  { id: 'p1', name: 'Frontend v2', color: '#6366f1', description: 'Redesign do frontend', createdAt: '2024-01-01' },
   { id: 'p2', name: 'API Gateway', color: '#10b981', description: 'Gateway com autenticação e rate limiting', createdAt: '2024-01-15' },
-  { id: 'p3', name: 'Mobile App',  color: '#f59e0b', description: 'Aplicativo mobile multiplataforma',       createdAt: '2024-02-01' },
+  { id: 'p3', name: 'Mobile App', color: '#f59e0b', description: 'Aplicativo mobile multiplataforma', createdAt: '2024-02-01' },
 ]
 
 const MOCK_TASKS: Task[] = [
-  { id: 't1', title: 'Setup arquitetura',     description: 'Estrutura de pastas e CI/CD',       status: 'done',        priority: 'high',   projectId: 'p1', dueDate: '2024-01-20', assignee: 'Alice',   customFieldValues: { cf1: 'Sprint 1', cf2: 8,  cf4: 'false' }, createdAt: '2024-01-02', updatedAt: '2024-01-18' },
-  { id: 't2', title: 'Design System',         description: 'Configurar tokens e estilos',       status: 'in_progress', priority: 'high',   projectId: 'p1', dueDate: '2024-02-01', assignee: 'Bob',     customFieldValues: { cf1: 'Sprint 2', cf2: 13, cf4: 'false' }, createdAt: '2024-01-10', updatedAt: '2024-01-25' },
-  { id: 't3', title: 'UI de Tarefas',         description: 'Tabela, drawers e formulários',     status: 'in_progress', priority: 'high',   projectId: 'p1', dueDate: '2024-02-15', assignee: 'Alice',   customFieldValues: { cf1: 'Sprint 2', cf2: 21, cf4: 'false' }, createdAt: '2024-01-12', updatedAt: '2024-01-28' },
-  { id: 't4', title: 'Auth Middleware',        description: 'JWT e refresh token',               status: 'todo',        priority: 'urgent', projectId: 'p2', dueDate: '2024-02-10', assignee: 'Charlie', customFieldValues: { cf1: 'Sprint 1', cf3: 'Dev',     cf5: '2024-03-01' }, createdAt: '2024-01-20', updatedAt: '2024-01-20' },
-  { id: 't5', title: 'Rate Limiting',          description: 'Sliding window com Redis',          status: 'todo',        priority: 'medium', projectId: 'p2', dueDate: '2024-02-20', assignee: 'Dave',    customFieldValues: { cf1: 'Sprint 2', cf3: 'Staging'             }, createdAt: '2024-01-22', updatedAt: '2024-01-22' },
-  { id: 't6', title: 'Documentação API',       description: 'OpenAPI 3.0 e Swagger UI',          status: 'review',      priority: 'low',    projectId: 'p2', dueDate: '2024-02-05', assignee: 'Charlie', customFieldValues: { cf3: 'Produção', cf5: '2024-02-28' },           createdAt: '2024-01-18', updatedAt: '2024-01-30' },
-  { id: 't7', title: 'Navegação React Native', description: 'Tab e stack navigation',            status: 'todo',        priority: 'high',   projectId: 'p3', dueDate: '2024-03-01', assignee: 'Eve',     customFieldValues: { cf2: 5,  cf4: 'true'  },                        createdAt: '2024-02-01', updatedAt: '2024-02-01' },
-  { id: 't8', title: 'Push Notifications',     description: 'Integração FCM',                    status: 'cancelled',   priority: 'medium', projectId: 'p3', dueDate: '2024-03-15', assignee: 'Bob',     customFieldValues: { cf2: 3,  cf4: 'false' },                        createdAt: '2024-02-05', updatedAt: '2024-02-10' },
+  { id: 't1', title: 'Setup arquitetura', description: 'Estrutura de pastas e CI/CD', status: 'done', priority: 'high', projectId: 'p1', dueDate: '2024-01-20', assignee: 'Alice', customFieldValues: { cf1: 'Sprint 1', cf2: 8, cf4: 'false' }, createdAt: '2024-01-02', updatedAt: '2024-01-18' },
+  { id: 't2', title: 'Design System', description: 'Configurar tokens e estilos', status: 'in_progress', priority: 'high', projectId: 'p1', dueDate: '2024-02-01', assignee: 'Bob', customFieldValues: { cf1: 'Sprint 2', cf2: 13, cf4: 'false' }, createdAt: '2024-01-10', updatedAt: '2024-01-25' },
+  { id: 't3', title: 'UI de Tarefas', description: 'Tabela, drawers e formulários', status: 'in_progress', priority: 'high', projectId: 'p1', dueDate: '2024-02-15', assignee: 'Alice', customFieldValues: { cf1: 'Sprint 2', cf2: 21, cf4: 'false' }, createdAt: '2024-01-12', updatedAt: '2024-01-28' },
+  { id: 't4', title: 'Auth Middleware', description: 'JWT e refresh token', status: 'todo', priority: 'urgent', projectId: 'p2', dueDate: '2024-02-10', assignee: 'Charlie', customFieldValues: { cf1: 'Sprint 1', cf3: 'Dev', cf5: '2024-03-01' }, createdAt: '2024-01-20', updatedAt: '2024-01-20' },
+  { id: 't5', title: 'Rate Limiting', description: 'Sliding window com Redis', status: 'todo', priority: 'medium', projectId: 'p2', dueDate: '2024-02-20', assignee: 'Dave', customFieldValues: { cf1: 'Sprint 2', cf3: 'Staging' }, createdAt: '2024-01-22', updatedAt: '2024-01-22' },
+  { id: 't6', title: 'Documentação API', description: 'OpenAPI 3.0 e Swagger UI', status: 'review', priority: 'low', projectId: 'p2', dueDate: '2024-02-05', assignee: 'Charlie', customFieldValues: { cf3: 'Produção', cf5: '2024-02-28' }, createdAt: '2024-01-18', updatedAt: '2024-01-30' },
+  { id: 't7', title: 'Navegação React Native', description: 'Tab e stack navigation', status: 'todo', priority: 'high', projectId: 'p3', dueDate: '2024-03-01', assignee: 'Eve', customFieldValues: { cf2: 5, cf4: 'true' }, createdAt: '2024-02-01', updatedAt: '2024-02-01' },
+  { id: 't8', title: 'Push Notifications', description: 'Integração FCM', status: 'cancelled', priority: 'medium', projectId: 'p3', dueDate: '2024-03-15', assignee: 'Bob', customFieldValues: { cf2: 3, cf4: 'false' }, createdAt: '2024-02-05', updatedAt: '2024-02-10' },
 ]
 
 // ─── THEME CONTEXT ────────────────────────────────────────────────────────────
 
 interface ThemeCtx { isDark: boolean; toggle: () => void }
-const ThemeContext = createContext<ThemeCtx>({ isDark: false, toggle: () => {} })
+const ThemeContext = createContext<ThemeCtx>({ isDark: false, toggle: () => { } })
 const useTheme = () => useContext(ThemeContext)
 
 // ─── LOADER CONTEXT ───────────────────────────────────────────────────────────
 
 interface LoaderCtx { loading: boolean; showLoader: () => void; hideLoader: () => void }
-const LoaderContext = createContext<LoaderCtx>({ loading: false, showLoader: () => {}, hideLoader: () => {} })
+const LoaderContext = createContext<LoaderCtx>({ loading: false, showLoader: () => { }, hideLoader: () => { } })
 export const useLoader = () => useContext(LoaderContext)
 
 const LoaderProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -207,9 +206,9 @@ const LoaderProvider: React.FC<{ children: React.ReactNode }> = ({ children }) =
           }}>
             {/* Klip icon */}
             <svg width="52" height="52" viewBox="0 0 191 191" style={{ borderRadius: 12 }}>
-              <path d="M 75.00 29.77 L 75.00 160.00 L 71.75 159.90 C60.29,159.54 49.27,152.47 43.84,142.00 C41.51,137.53 41.50,137.27 41.22,96.10 L 41.21 95.49 C40.97,59.07 40.91,50.73 44.72,44.93 C45.88,43.17 47.38,41.65 49.35,39.65 C55.74,33.15 60.71,30.73 68.75,30.19 Z" fill="rgb(102,172,203)"/>
-              <path d="M 127.25 77.27 C116.94,87.28 103.44,100.40 97.25,106.43 L 86.00 117.39 L 86.00 71.41 L 97.00 61.50 C107.43,52.10 108.00,51.38 108.00,47.68 C108.00,42.45 111.39,36.71 116.00,34.12 C119.31,32.26 121.38,32.00 132.89,32.00 L 146.00 32.00 L 146.00 59.08 ZM 125.81 156.60 C122.88,158.08 118.30,159.33 114.45,159.69 L 108.00 160.29 L 108.00 131.56 L 102.75 126.25 L 97.50 120.93 L 106.02 112.72 C110.71,108.20 116.40,102.77 118.65,100.66 L 122.76 96.83 L 129.88 103.95 C133.80,107.87 138.19,113.41 139.63,116.27 C143.10,123.11 143.85,131.92 141.56,138.83 C139.41,145.28 132.30,153.31 125.81,156.60 Z" fill="rgb(238,128,91)"/>
-              <path fillRule="evenodd" d="M 0.00 95.50 L 0.00 0.00 L 191.00 0.00 L 191.00 191.00 L 0.00 191.00 Z M 75.00 94.88 L 75.00 29.77 L 68.75 30.19 C60.71,30.73 55.74,33.15 49.35,39.65 C40.86,48.28 40.89,48.04 41.22,96.10 C41.50,137.27 41.51,137.53 43.84,142.00 C49.27,152.47 60.29,159.54 71.75,159.90 L 75.00 160.00 Z M 125.81 156.60 C132.30,153.31 139.41,145.28 141.56,138.83 C143.85,131.92 143.10,123.11 139.63,116.27 C138.19,113.41 133.80,107.87 129.88,103.95 L 122.76 96.83 L 118.65 100.66 C116.40,102.77 110.71,108.20 106.02,112.72 L 97.50 120.93 L 102.75 126.25 L 108.00 131.56 L 108.00 160.29 L 114.45 159.69 C118.30,159.33 122.88,158.08 125.81,156.60 Z M 127.25 77.27 L 146.00 59.08 L 146.00 32.00 L 132.89 32.00 C121.38,32.00 119.31,32.26 116.00,34.12 C111.39,36.71 108.00,42.45 108.00,47.68 C108.00,51.38 107.43,52.10 97.00,61.50 L 86.00 71.41 L 86.00 117.39 L 97.25 106.43 C103.44,100.40 116.94,87.28 127.25,77.27 Z" fill={isDark ? '#111111' : '#fefefe'}/>
+              <path d="M 75.00 29.77 L 75.00 160.00 L 71.75 159.90 C60.29,159.54 49.27,152.47 43.84,142.00 C41.51,137.53 41.50,137.27 41.22,96.10 L 41.21 95.49 C40.97,59.07 40.91,50.73 44.72,44.93 C45.88,43.17 47.38,41.65 49.35,39.65 C55.74,33.15 60.71,30.73 68.75,30.19 Z" fill="rgb(102,172,203)" />
+              <path d="M 127.25 77.27 C116.94,87.28 103.44,100.40 97.25,106.43 L 86.00 117.39 L 86.00 71.41 L 97.00 61.50 C107.43,52.10 108.00,51.38 108.00,47.68 C108.00,42.45 111.39,36.71 116.00,34.12 C119.31,32.26 121.38,32.00 132.89,32.00 L 146.00 32.00 L 146.00 59.08 ZM 125.81 156.60 C122.88,158.08 118.30,159.33 114.45,159.69 L 108.00 160.29 L 108.00 131.56 L 102.75 126.25 L 97.50 120.93 L 106.02 112.72 C110.71,108.20 116.40,102.77 118.65,100.66 L 122.76 96.83 L 129.88 103.95 C133.80,107.87 138.19,113.41 139.63,116.27 C143.10,123.11 143.85,131.92 141.56,138.83 C139.41,145.28 132.30,153.31 125.81,156.60 Z" fill="rgb(238,128,91)" />
+              <path fillRule="evenodd" d="M 0.00 95.50 L 0.00 0.00 L 191.00 0.00 L 191.00 191.00 L 0.00 191.00 Z M 75.00 94.88 L 75.00 29.77 L 68.75 30.19 C60.71,30.73 55.74,33.15 49.35,39.65 C40.86,48.28 40.89,48.04 41.22,96.10 C41.50,137.27 41.51,137.53 43.84,142.00 C49.27,152.47 60.29,159.54 71.75,159.90 L 75.00 160.00 Z M 125.81 156.60 C132.30,153.31 139.41,145.28 141.56,138.83 C143.85,131.92 143.10,123.11 139.63,116.27 C138.19,113.41 133.80,107.87 129.88,103.95 L 122.76 96.83 L 118.65 100.66 C116.40,102.77 110.71,108.20 106.02,112.72 L 97.50 120.93 L 102.75 126.25 L 108.00 131.56 L 108.00 160.29 L 114.45 159.69 C118.30,159.33 122.88,158.08 125.81,156.60 Z M 127.25 77.27 L 146.00 59.08 L 146.00 32.00 L 132.89 32.00 C121.38,32.00 119.31,32.26 116.00,34.12 C111.39,36.71 108.00,42.45 108.00,47.68 C108.00,51.38 107.43,52.10 97.00,61.50 L 86.00 71.41 L 86.00 117.39 L 97.25 106.43 C103.44,100.40 116.94,87.28 127.25,77.27 Z" fill={isDark ? '#111111' : '#fefefe'} />
             </svg>
             <ConfigProvider theme={{ components: { Spin: { dotSize: 32, colorPrimary: '#6366f1' } } }}>
               <Spin size="large" />
@@ -228,31 +227,31 @@ interface AppDataCtx {
   tasks: Task[]
   projects: Project[]
   customFields: CustomField[]
-  addTask:          (t: Omit<Task,    'id' | 'createdAt' | 'updatedAt'>) => void
-  updateTask:       (id: string, u: Partial<Task>)      => void
-  deleteTask:       (id: string)                         => void
-  addProject:       (p: Omit<Project, 'id' | 'createdAt'>) => Project
-  updateProject:    (id: string, u: Partial<Project>)   => void
-  deleteProject:    (id: string)                         => void
-  addCustomField:    (f: Omit<CustomField, 'id'>)                      => void
+  addTask: (t: Omit<Task, 'id' | 'createdAt' | 'updatedAt'>) => void
+  updateTask: (id: string, u: Partial<Task>) => void
+  deleteTask: (id: string) => void
+  addProject: (p: Omit<Project, 'id' | 'createdAt'>) => Project
+  updateProject: (id: string, u: Partial<Project>) => void
+  deleteProject: (id: string) => void
+  addCustomField: (f: Omit<CustomField, 'id'>) => void
   updateCustomField: (id: string, u: Partial<Omit<CustomField, 'id'>>) => void
-  deleteCustomField: (id: string)                                       => void
-  setProjectFields:  (projectId: string, fieldIds: string[])           => void
+  deleteCustomField: (id: string) => void
+  setProjectFields: (projectId: string, fieldIds: string[]) => void
 }
 
 const AppDataContext = createContext<AppDataCtx>({
   tasks: [], projects: [], customFields: [],
-  addTask: () => {}, updateTask: () => {}, deleteTask: () => {},
-  addProject: () => ({} as Project), updateProject: () => {}, deleteProject: () => {},
-  addCustomField: () => {}, updateCustomField: () => {}, deleteCustomField: () => {},
-  setProjectFields: () => {},
+  addTask: () => { }, updateTask: () => { }, deleteTask: () => { },
+  addProject: () => ({} as Project), updateProject: () => { }, deleteProject: () => { },
+  addCustomField: () => { }, updateCustomField: () => { }, deleteCustomField: () => { },
+  setProjectFields: () => { },
 })
 export const useAppData = () => useContext(AppDataContext)
 
 const AppDataProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { notification } = AntApp.useApp()
-  const [tasks,        setTasks]        = useState<Task[]>(MOCK_TASKS)
-  const [projects,     setProjects]     = useState<Project[]>(MOCK_PROJECTS)
+  const [tasks, setTasks] = useState<Task[]>(MOCK_TASKS)
+  const [projects, setProjects] = useState<Project[]>(MOCK_PROJECTS)
   const [customFields, setCustomFields] = useState<CustomField[]>(MOCK_FIELDS)
 
   const addTask = useCallback((data: Omit<Task, 'id' | 'createdAt' | 'updatedAt'>) => {
@@ -321,8 +320,8 @@ const AppDataProvider: React.FC<{ children: React.ReactNode }> = ({ children }) 
   const setProjectFields = useCallback((projectId: string, fieldIds: string[]) => {
     setCustomFields(prev => prev.map(f => {
       if (f.scope !== 'project') return f
-      const hasProject  = f.projectIds.includes(projectId)
-      const shouldHave  = fieldIds.includes(f.id)
+      const hasProject = f.projectIds.includes(projectId)
+      const shouldHave = fieldIds.includes(f.id)
       if (hasProject === shouldHave) return f
       return {
         ...f,
@@ -349,7 +348,6 @@ const AppDataProvider: React.FC<{ children: React.ReactNode }> = ({ children }) 
 
 const AppLogo: React.FC<{ collapsed: boolean }> = ({ collapsed }) => {
   const { isDark } = useTheme()
-  const bgFill = isDark ? '#111111' : '#fefefe'
   return (
     <div style={{
       display: 'flex',
@@ -362,9 +360,8 @@ const AppLogo: React.FC<{ collapsed: boolean }> = ({ collapsed }) => {
       flexShrink: 0,
     }}>
       <svg width="32" height="32" viewBox="0 0 191 191" style={{ flexShrink: 0, borderRadius: 7, display: 'block' }}>
-        <path d="M 75.00 29.77 L 75.00 160.00 L 71.75 159.90 C60.29,159.54 49.27,152.47 43.84,142.00 C41.51,137.53 41.50,137.27 41.22,96.10 L 41.21 95.49 C40.97,59.07 40.91,50.73 44.72,44.93 C45.88,43.17 47.38,41.65 49.35,39.65 C55.74,33.15 60.71,30.73 68.75,30.19 Z" fill="rgb(102,172,203)"/>
-        <path d="M 127.25 77.27 C116.94,87.28 103.44,100.40 97.25,106.43 L 86.00 117.39 L 86.00 71.41 L 97.00 61.50 C107.43,52.10 108.00,51.38 108.00,47.68 C108.00,42.45 111.39,36.71 116.00,34.12 C119.31,32.26 121.38,32.00 132.89,32.00 L 146.00 32.00 L 146.00 59.08 ZM 125.81 156.60 C122.88,158.08 118.30,159.33 114.45,159.69 L 108.00 160.29 L 108.00 131.56 L 102.75 126.25 L 97.50 120.93 L 106.02 112.72 C110.71,108.20 116.40,102.77 118.65,100.66 L 122.76 96.83 L 129.88 103.95 C133.80,107.87 138.19,113.41 139.63,116.27 C143.10,123.11 143.85,131.92 141.56,138.83 C139.41,145.28 132.30,153.31 125.81,156.60 Z" fill="rgb(238,128,91)"/>
-        <path fillRule="evenodd" d="M 0.00 95.50 L 0.00 0.00 L 95.50 0.00 L 191.00 0.00 L 191.00 95.50 L 191.00 191.00 L 95.50 191.00 L 0.00 191.00 L 0.00 95.50 ZM 75.00 94.88 L 75.00 29.77 L 68.75 30.19 C60.71,30.73 55.74,33.15 49.35,39.65 C40.86,48.28 40.89,48.04 41.22,96.10 C41.50,137.27 41.51,137.53 43.84,142.00 C49.27,152.47 60.29,159.54 71.75,159.90 L 75.00 160.00 L 75.00 94.88 ZM 125.81 156.60 C132.30,153.31 139.41,145.28 141.56,138.83 C143.85,131.92 143.10,123.11 139.63,116.27 C138.19,113.41 133.80,107.87 129.88,103.95 L 122.76 96.83 L 118.65 100.66 C116.40,102.77 110.71,108.20 106.02,112.72 L 97.50 120.93 L 102.75 126.25 L 108.00 131.56 L 108.00 145.93 L 108.00 160.29 L 114.45 159.69 C118.30,159.33 122.88,158.08 125.81,156.60 ZM 127.25 77.27 L 146.00 59.08 L 146.00 45.54 L 146.00 32.00 L 132.89 32.00 C121.38,32.00 119.31,32.26 116.00,34.12 C111.39,36.71 108.00,42.45 108.00,47.68 C108.00,51.38 107.43,52.10 97.00,61.50 L 86.00 71.41 L 86.00 94.40 L 86.00 117.39 L 97.25 106.43 C103.44,100.40 116.94,87.28 127.25,77.27 Z" fill={bgFill}/>
+        <path d="M 75.00 29.77 L 75.00 160.00 L 71.75 159.90 C60.29,159.54 49.27,152.47 43.84,142.00 C41.51,137.53 41.50,137.27 41.22,96.10 L 41.21 95.49 C40.97,59.07 40.91,50.73 44.72,44.93 C45.88,43.17 47.38,41.65 49.35,39.65 C55.74,33.15 60.71,30.73 68.75,30.19 Z" fill="rgb(102,172,203)" />
+        <path d="M 127.25 77.27 C116.94,87.28 103.44,100.40 97.25,106.43 L 86.00 117.39 L 86.00 71.41 L 97.00 61.50 C107.43,52.10 108.00,51.38 108.00,47.68 C108.00,42.45 111.39,36.71 116.00,34.12 C119.31,32.26 121.38,32.00 132.89,32.00 L 146.00 32.00 L 146.00 59.08 ZM 125.81 156.60 C122.88,158.08 118.30,159.33 114.45,159.69 L 108.00 160.29 L 108.00 131.56 L 102.75 126.25 L 97.50 120.93 L 106.02 112.72 C110.71,108.20 116.40,102.77 118.65,100.66 L 122.76 96.83 L 129.88 103.95 C133.80,107.87 138.19,113.41 139.63,116.27 C143.10,123.11 143.85,131.92 141.56,138.83 C139.41,145.28 132.30,153.31 125.81,156.60 Z" fill="rgb(238,128,91)" />
       </svg>
       {!collapsed && (
         <div style={{ lineHeight: 1.15, overflow: 'hidden', whiteSpace: 'nowrap' }}>
@@ -372,7 +369,7 @@ const AppLogo: React.FC<{ collapsed: boolean }> = ({ collapsed }) => {
             Klip
           </div>
           <div style={{ fontSize: 10, letterSpacing: '1.5px', opacity: 0.4, textTransform: 'uppercase' }}>
-            Task Manager
+            Task Manager App
           </div>
         </div>
       )}
@@ -423,14 +420,14 @@ const TaskDrawer: React.FC<{
   const handleSubmit = () =>
     form.validateFields().then((values: TaskFormValues) => {
       const processed: Omit<Task, 'id' | 'createdAt' | 'updatedAt'> = {
-        title:               values.title,
-        description:         values.description ?? '',
-        status:              values.status,
-        priority:            values.priority,
-        projectId:           values.projectId,
-        assignee:            values.assignee,
-        dueDate:             values.dueDate ? values.dueDate.format('YYYY-MM-DD') : undefined,
-        customFieldValues:   values.customFieldValues ?? {},
+        title: values.title,
+        description: values.description ?? '',
+        status: values.status,
+        priority: values.priority,
+        projectId: values.projectId,
+        assignee: values.assignee,
+        dueDate: values.dueDate ? values.dueDate.format('YYYY-MM-DD') : undefined,
+        customFieldValues: values.customFieldValues ?? {},
       }
       if (editingTask) {
         updateTask(editingTask.id, processed)
@@ -526,9 +523,9 @@ const TaskDrawer: React.FC<{
                   </Space>
                 }
               >
-                {f.type === 'text'     && <Input />}
-                {f.type === 'number'   && <InputNumber style={{ width: '100%' }} />}
-                {f.type === 'date'     && <DatePicker style={{ width: '100%' }} format="DD/MM/YYYY" />}
+                {f.type === 'text' && <Input />}
+                {f.type === 'number' && <InputNumber style={{ width: '100%' }} />}
+                {f.type === 'date' && <DatePicker style={{ width: '100%' }} format="DD/MM/YYYY" />}
                 {f.type === 'checkbox' && (
                   <Select>
                     <Select.Option value="true">Sim</Select.Option>
@@ -585,8 +582,8 @@ const ProjectDrawer: React.FC<{
         setProjectFields(editingProject.id, values.cfIds ?? [])
       } else {
         const newProj = addProject({
-          name:        values.name,
-          color:       values.color ?? PROJECT_COLORS[0],
+          name: values.name,
+          color: values.color ?? PROJECT_COLORS[0],
           description: values.description ?? '',
         })
         setProjectFields(newProj.id, values.cfIds ?? [])
@@ -691,14 +688,14 @@ const TasksTable: React.FC<{
 }> = ({ onEdit, filterPid }) => {
   const { tasks, projects, deleteTask, updateTask } = useAppData()
   const { isDark } = useTheme()
-  const [pageSize,    setPageSize]    = useState(6)
-  const [visibleCount, setVisibleCount] = useState(6)
+  const [pageSize, setPageSize] = useState(10)
+  const [visibleCount, setVisibleCount] = useState(10)
   const [tableSize, setTableSize] = useState<'small' | 'middle' | 'large'>('small')
 
-  const all  = filterPid ? tasks.filter(t => t.projectId === filterPid) : tasks
+  const all = filterPid ? tasks.filter(t => t.projectId === filterPid) : tasks
   const data = all.slice(0, visibleCount)
   const projMap = Object.fromEntries(projects.map(p => [p.id, p]))
-  const border  = isDark ? '#3a3a3a' : 'rgba(0,0,0,0.07)'
+  const border = isDark ? '#3a3a3a' : 'rgba(0,0,0,0.07)'
 
   const handlePageSizeChange = (v: number) => {
     setPageSize(v)
@@ -895,9 +892,9 @@ const TasksTable: React.FC<{
             onChange={setTableSize}
             style={{ width: 108 }}
             options={[
-              { label: 'Compacto',  value: 'small'  },
-              { label: 'Padrão',    value: 'middle' },
-              { label: 'Espaçoso', value: 'large'  },
+              { label: 'Compacto', value: 'small' },
+              { label: 'Padrão', value: 'middle' },
+              { label: 'Espaçoso', value: 'large' },
             ]}
           />
           <Select
@@ -906,7 +903,7 @@ const TasksTable: React.FC<{
             onChange={handlePageSizeChange}
             style={{ width: 80 }}
             options={[
-              { label: '5 / vez',  value: 5  },
+              { label: '5 / vez', value: 5 },
               { label: '10 / vez', value: 10 },
               { label: '20 / vez', value: 20 },
               { label: '50 / vez', value: 50 },
@@ -925,33 +922,19 @@ const ProjectHero: React.FC<{
   onEdit: () => void
 }> = ({ project, onEdit }) => {
   const { isDark } = useTheme()
-  const { tasks, customFields } = useAppData()
-  const projFieldCount = customFields.filter(f => f.scope === 'universal' || f.projectIds.includes(project.id)).length
 
-  const pts      = tasks.filter(t => t.projectId === project.id)
-  const done     = pts.filter(t => t.status === 'done').length
-  const active   = pts.filter(t => t.status === 'in_progress').length
-  const pending  = pts.filter(t => t.status === 'todo').length
-  const pct      = pts.length > 0 ? Math.round((done / pts.length) * 100) : 0
-  const c        = project.color
-  const border   = isDark ? '#3a3a3a' : 'rgba(0,0,0,0.08)'
-
-  const chips = [
-    { label: `${pts.length} tarefas`,     color: c },
-    { label: `${done} concluídas`,        color: '#10b981' },
-    { label: `${active} em progresso`,    color: '#f59e0b' },
-    { label: `${pending} pendentes`,      color: isDark ? '#666' : '#aaa' },
-  ]
+  const c = project.color
+  const border = isDark ? '#3a3a3a' : 'rgba(0,0,0,0.08)'
 
   return (
     <div style={{
       marginBottom: 20,
       position: 'relative',
       overflow: 'hidden',
-      borderTop:    `1px solid ${border}`,
-      borderRight:  `1px solid ${border}`,
+      borderTop: `1px solid ${border}`,
+      borderRight: `1px solid ${border}`,
       borderBottom: `1px solid ${border}`,
-      borderLeft:   `4px solid ${c}`,
+      borderLeft: `4px solid ${c}`,
       background: isDark
         ? `linear-gradient(135deg, ${c}18 0%, ${c}06 40%, transparent 70%)`
         : `linear-gradient(135deg, ${c}12 0%, ${c}05 40%, transparent 70%)`,
@@ -981,55 +964,10 @@ const ProjectHero: React.FC<{
 
         {/* description */}
         {project.description && (
-          <Text type="secondary" style={{ fontSize: 13, display: 'block', marginBottom: 16, paddingLeft: 24 }}>
+          <Text type="secondary" style={{ fontSize: 13, display: 'block', paddingLeft: 24 }}>
             {project.description}
           </Text>
         )}
-
-        {/* progress bar */}
-        <div style={{ paddingLeft: 24, marginBottom: 14 }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
-            <Text type="secondary" style={{ fontSize: 11 }}>Progresso geral</Text>
-            <Text style={{ fontSize: 11, color: c, fontWeight: 600 }}>{pct}%</Text>
-          </div>
-          <Progress
-            percent={pct}
-            showInfo={false}
-            strokeColor={c}
-            trailColor={isDark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.07)'}
-            strokeLinecap="butt"
-            size={['100%', 4]}
-          />
-        </div>
-
-        {/* stat chips */}
-        <div style={{ paddingLeft: 24, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-          {chips.map(ch => (
-            <span key={ch.label} style={{
-              fontSize: 11,
-              padding: '2px 10px',
-              borderRadius: 99,
-              border: `1px solid ${ch.color}40`,
-              background: `${ch.color}14`,
-              color: ch.color,
-              fontWeight: 500,
-            }}>
-              {ch.label}
-            </span>
-          ))}
-          {projFieldCount > 0 && (
-            <span style={{
-              fontSize: 11,
-              padding: '2px 10px',
-              borderRadius: 99,
-              border: `1px solid ${border}`,
-              opacity: 0.5,
-              fontWeight: 500,
-            }}>
-              {projFieldCount} campo{projFieldCount !== 1 ? 's' : ''} personalizado{projFieldCount !== 1 ? 's' : ''}
-            </span>
-          )}
-        </div>
       </div>
     </div>
   )
@@ -1037,54 +975,18 @@ const ProjectHero: React.FC<{
 
 // ─── STATS ROW ────────────────────────────────────────────────────────────────
 
-const StatsRow: React.FC = () => {
-  const { tasks } = useAppData()
-  const { isDark } = useTheme()
-  const border = isDark ? '#3a3a3a'              : 'rgba(0,0,0,0.07)'
-  const bg     = isDark ? 'rgba(30,30,30,0.85)'  : 'rgba(255,255,255,0.65)'
-  const stats = [
-    { label: 'Total',        value: tasks.length,                                         color: '#6366f1' },
-    { label: 'Em Progresso', value: tasks.filter(t => t.status === 'in_progress').length,  color: '#f59e0b' },
-    { label: 'Concluídas',   value: tasks.filter(t => t.status === 'done').length,          color: '#10b981' },
-    { label: 'Pendentes',    value: tasks.filter(t => t.status === 'todo').length,           color: '#94a3b8' },
-  ]
-
-  return (
-    <Row gutter={12} style={{ marginBottom: 20 }}>
-      {stats.map(s => (
-        <Col key={s.label} xs={12} sm={6}>
-          <div style={{
-            padding: '14px 18px',
-            background: bg,
-            border: `1px solid ${border}`,
-            borderLeft: `3px solid ${s.color}`,
-            backdropFilter: 'blur(12px)',
-            WebkitBackdropFilter: 'blur(12px)',
-          }}>
-            <Statistic
-              title={<Text style={{ fontSize: 11 }}>{s.label}</Text>}
-              value={s.value}
-              valueStyle={{ color: s.color, fontSize: 22, fontWeight: 700 }}
-            />
-          </div>
-        </Col>
-      ))}
-    </Row>
-  )
-}
-
 // ─── TASK EDIT CONTEXT ────────────────────────────────────────────────────────
 
 interface TaskEditCtx {
   openEditTask: (task: Task | null, defaultProjectId?: string) => void
 }
-const TaskEditContext = createContext<TaskEditCtx>({ openEditTask: () => {} })
+const TaskEditContext = createContext<TaskEditCtx>({ openEditTask: () => { } })
 const useTaskEdit = () => useContext(TaskEditContext)
 
 const TaskEditProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [taskOpen,    setTaskOpen]    = useState(false)
+  const [taskOpen, setTaskOpen] = useState(false)
   const [editingTask, setEditingTask] = useState<Task | null>(null)
-  const [defaultPid,  setDefaultPid]  = useState<string | undefined>()
+  const [defaultPid, setDefaultPid] = useState<string | undefined>()
 
   const openEditTask = useCallback((task: Task | null, defaultProjectId?: string) => {
     setEditingTask(task)
@@ -1112,7 +1014,7 @@ const CalendarView: React.FC = () => {
   const { openEditTask } = useTaskEdit()
   const { isDark } = useTheme()
   const border = isDark ? '#3a3a3a' : 'rgba(0,0,0,0.07)'
-  const glass  = { backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)' }
+  const glass = { backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)' }
 
   const tasksByDate = useMemo(() => {
     const map: Record<string, Task[]> = {}
@@ -1127,11 +1029,11 @@ const CalendarView: React.FC = () => {
 
   const statusToBadge = (s: TaskStatus): BadgeProps['status'] => {
     switch (s) {
-      case 'done':        return 'success'
+      case 'done': return 'success'
       case 'in_progress': return 'processing'
-      case 'review':      return 'warning'
-      case 'cancelled':   return 'error'
-      default:            return 'default'
+      case 'review': return 'warning'
+      case 'cancelled': return 'error'
+      default: return 'default'
     }
   }
 
@@ -1245,8 +1147,8 @@ const UserSettingsView: React.FC = () => {
         <Space direction="vertical" style={{ width: '100%' }} size={16}>
           {[
             { icon: <GithubOutlined />, label: 'GitHub', connected: true },
-            { icon: <GlobalOutlined />,  label: 'Google', connected: false },
-            { icon: <LinkOutlined />,    label: 'Microsoft', connected: false },
+            { icon: <GlobalOutlined />, label: 'Google', connected: false },
+            { icon: <LinkOutlined />, label: 'Microsoft', connected: false },
           ].map(item => (
             <div key={item.label} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
               <Space>
@@ -1374,11 +1276,11 @@ const CustomFieldsSettingsView: React.FC = () => {
   const openEdit = (f: CustomField) => {
     setEditingField(f)
     form.setFieldsValue({
-      name:       f.name,
-      type:       f.type,
-      scope:      f.scope,
+      name: f.name,
+      type: f.type,
+      scope: f.scope,
       projectIds: f.projectIds,
-      options:    f.options?.join('\n') ?? '',
+      options: f.options?.join('\n') ?? '',
     })
     setScopeVal(f.scope)
     setTypeVal(f.type)
@@ -1391,11 +1293,11 @@ const CustomFieldsSettingsView: React.FC = () => {
         ? (values.options as string).split('\n').map((o: string) => o.trim()).filter(Boolean)
         : undefined
       const payload: Omit<CustomField, 'id'> = {
-        name:       values.name,
-        type:       values.type as FieldType,
-        scope:      values.scope,
+        name: values.name,
+        type: values.type as FieldType,
+        scope: values.scope,
         projectIds: values.scope === 'project' ? (values.projectIds ?? []) : [],
-        options:    opts,
+        options: opts,
       }
       if (editingField) {
         updateCustomField(editingField.id, payload)
@@ -1530,11 +1432,11 @@ const MainApp: React.FC = () => {
   const { openEditTask } = useTaskEdit()
 
   const [siderWidth, setSiderWidth] = useState(240)
-  const [collapsed, setCollapsed]   = useState(false)
-  const [openKeys, setOpenKeys]     = useState<string[]>(['projects'])
-  const [activeKey, setActiveKey]   = useState('tasks')
-  const [filterPid, setFilterPid]   = useState<string | undefined>()
-  const [projOpen, setProjOpen]     = useState(false)
+  const [collapsed, setCollapsed] = useState(false)
+  const [openKeys, setOpenKeys] = useState<string[]>(['projects'])
+  const [activeKey, setActiveKey] = useState('tasks')
+  const [filterPid, setFilterPid] = useState<string | undefined>()
+  const [projOpen, setProjOpen] = useState(false)
   const [editingProj, setEditingProj] = useState<Project | null>(null)
   const [searchQuery, setSearchQuery] = useState('')
 
@@ -1546,13 +1448,13 @@ const MainApp: React.FC = () => {
   }, [showLoader, hideLoader])
 
   const COLLAPSED_W = 64
-  const glass   = { backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)' }
-  const border  = isDark ? '#3a3a3a'              : 'rgba(0,0,0,0.08)'
-  const siderBg = isDark ? 'rgba(10,10,10,0.97)'  : 'rgba(252,252,255,0.94)'
-  const panelBg = isDark ? 'rgba(22,22,22,0.96)'  : 'rgba(255,255,255,0.90)'
+  const glass = { backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)' }
+  const border = isDark ? '#3a3a3a' : 'rgba(0,0,0,0.08)'
+  const siderBg = isDark ? 'rgba(10,10,10,0.97)' : 'rgba(252,252,255,0.94)'
+  const panelBg = isDark ? 'rgba(22,22,22,0.96)' : 'rgba(255,255,255,0.90)'
 
   const menuItems: MenuProps['items'] = [
-    { key: 'tasks',    icon: <CheckSquareOutlined />, label: 'Minhas tarefas' },
+    { key: 'tasks', icon: <CheckSquareOutlined />, label: 'Minhas tarefas' },
     {
       key: 'projects',
       icon: <FolderOutlined />,
@@ -1573,7 +1475,7 @@ const MainApp: React.FC = () => {
       icon: <SettingOutlined />,
       label: 'Configurações',
       children: [
-        { key: 'settings-user',         icon: <UserOutlined />,     label: 'Usuário' },
+        { key: 'settings-user', icon: <UserOutlined />, label: 'Usuário' },
         { key: 'settings-customfields', icon: <DatabaseOutlined />, label: 'Campos Personalizados' },
       ],
     },
@@ -1790,9 +1692,7 @@ const MainApp: React.FC = () => {
                       project={currentProject}
                       onEdit={() => { setEditingProj(currentProject); setProjOpen(true) }}
                     />
-                  ) : (
-                    <StatsRow />
-                  )}
+                  ) : null}
                   <div style={{
                     background: isDark ? 'rgba(22,22,22,0.85)' : 'rgba(255,255,255,0.72)',
                     border: `1px solid ${border}`,
@@ -1871,13 +1771,13 @@ const ThemeWrapper: React.FC<{ children: React.ReactNode }> = ({ children }) => 
           components: {
             Layout: {
               headerBg: 'transparent',
-              bodyBg:   'transparent',
+              bodyBg: 'transparent',
             },
             Menu: {
-              itemBg:           'transparent',
-              subMenuItemBg:    'transparent',
-              darkItemBg:       'transparent',
-              darkSubMenuItemBg:'transparent',
+              itemBg: 'transparent',
+              subMenuItemBg: 'transparent',
+              darkItemBg: 'transparent',
+              darkSubMenuItemBg: 'transparent',
             },
           },
         }}
