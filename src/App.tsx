@@ -5,6 +5,7 @@ import React, {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
 } from 'react'
 import dayjs from 'dayjs'
 import {
@@ -33,7 +34,6 @@ import {
   Col,
   InputNumber,
   Empty,
-  Progress,
   Calendar,
   Badge,
   Modal,
@@ -692,6 +692,19 @@ const TasksTable: React.FC<{
   const [visibleCount, setVisibleCount] = useState(10)
   const [tableSize, setTableSize] = useState<'small' | 'middle' | 'large'>('small')
 
+  const scrollAreaRef = useRef<HTMLDivElement>(null)
+  const [scrollY, setScrollY] = useState(300)
+
+  useEffect(() => {
+    const el = scrollAreaRef.current
+    if (!el) return
+    const update = () => setScrollY(Math.max(100, el.clientHeight - 39))
+    update()
+    const ro = new ResizeObserver(update)
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [])
+
   const all = filterPid ? tasks.filter(t => t.projectId === filterPid) : tasks
   const data = all.slice(0, visibleCount)
   const projMap = Object.fromEntries(projects.map(p => [p.id, p]))
@@ -852,16 +865,18 @@ const TasksTable: React.FC<{
   ]
 
   return (
-    <>
-      <Table
-        columns={columns}
-        dataSource={data}
-        rowKey="id"
-        size={tableSize}
-        pagination={false}
-        scroll={{ x: 780 }}
-        locale={{ emptyText: <Empty description="Nenhuma tarefa encontrada" /> }}
-      />
+    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0, overflow: 'hidden' }}>
+      <div ref={scrollAreaRef} style={{ flex: 1, minHeight: 0, overflow: 'hidden' }}>
+        <Table
+          columns={columns}
+          dataSource={data}
+          rowKey="id"
+          size={tableSize}
+          pagination={false}
+          scroll={{ x: 780, y: scrollY }}
+          locale={{ emptyText: <Empty description="Nenhuma tarefa encontrada" /> }}
+        />
+      </div>
 
       {/* ── VER MAIS — full-width row ── */}
       {visibleCount < all.length && (
@@ -881,6 +896,7 @@ const TasksTable: React.FC<{
         alignItems: 'center',
         justifyContent: 'space-between',
         gap: 8,
+        flexShrink: 0,
       }}>
         <Text type="secondary" style={{ fontSize: 12 }}>
           {Math.min(visibleCount, all.length)} de {all.length} tarefa{all.length !== 1 ? 's' : ''}
@@ -911,7 +927,7 @@ const TasksTable: React.FC<{
           />
         </Space>
       </div>
-    </>
+    </div>
   )
 }
 
@@ -1678,7 +1694,7 @@ const MainApp: React.FC = () => {
             </Header>
 
             {/* CONTENT */}
-            <Content style={{ padding: 20, overflowY: 'auto', background: 'transparent' }}>
+            <Content style={{ padding: 20, overflow: 'hidden', background: 'transparent', display: 'flex', flexDirection: 'column' }}>
               {activeKey === 'calendar' ? (
                 <CalendarView />
               ) : activeKey === 'settings-user' ? (
@@ -1686,16 +1702,23 @@ const MainApp: React.FC = () => {
               ) : activeKey === 'settings-customfields' ? (
                 <CustomFieldsSettingsView />
               ) : (
-                <>
+                <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
                   {currentProject ? (
-                    <ProjectHero
-                      project={currentProject}
-                      onEdit={() => { setEditingProj(currentProject); setProjOpen(true) }}
-                    />
+                    <div style={{ flexShrink: 0 }}>
+                      <ProjectHero
+                        project={currentProject}
+                        onEdit={() => { setEditingProj(currentProject); setProjOpen(true) }}
+                      />
+                    </div>
                   ) : null}
                   <div style={{
+                    flex: 1,
+                    display: 'flex',
+                    flexDirection: 'column',
+                    minHeight: 0,
                     background: isDark ? 'rgba(22,22,22,0.85)' : 'rgba(255,255,255,0.72)',
                     border: `1px solid ${border}`,
+                    overflow: 'hidden',
                     ...glass,
                   }}>
                     <div style={{
@@ -1704,6 +1727,7 @@ const MainApp: React.FC = () => {
                       display: 'flex',
                       justifyContent: 'space-between',
                       alignItems: 'center',
+                      flexShrink: 0,
                     }}>
                       <Text strong style={{ fontSize: 13 }}>
                         {filterPid ? `Tarefas — ${currentProject?.name}` : 'Todas as Tarefas'}
@@ -1719,7 +1743,7 @@ const MainApp: React.FC = () => {
                       filterPid={filterPid}
                     />
                   </div>
-                </>
+                </div>
               )}
             </Content>
 
