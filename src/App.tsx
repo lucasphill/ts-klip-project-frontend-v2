@@ -40,7 +40,7 @@ import {
   Card,
   Alert,
 } from 'antd'
-import type { TableColumnsType, MenuProps, BadgeProps, CalendarProps } from 'antd'
+import type { MenuProps, BadgeProps, CalendarProps } from 'antd'
 import {
   SearchOutlined,
   CheckSquareOutlined,
@@ -54,7 +54,6 @@ import {
   SunOutlined,
   MoonOutlined,
   CheckCircleOutlined,
-  PlusOutlined,
   CalendarOutlined,
   DatabaseOutlined,
   RobotOutlined,
@@ -63,6 +62,37 @@ import {
   GithubOutlined,
   GlobalOutlined,
 } from '@ant-design/icons'
+import {
+  useReactTable,
+  getCoreRowModel,
+  getSortedRowModel,
+  getFilteredRowModel,
+  flexRender,
+  createColumnHelper,
+  type ColumnDef,
+  type SortingState,
+  type ColumnFiltersState,
+  type ColumnResizeMode,
+} from '@tanstack/react-table'
+import { useVirtualizer } from '@tanstack/react-virtual'
+import {
+  DndContext,
+  closestCenter,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from '@dnd-kit/core'
+import {
+  SortableContext,
+  verticalListSortingStrategy,
+  useSortable,
+  arrayMove,
+  sortableKeyboardCoordinates,
+} from '@dnd-kit/sortable'
+import { restrictToVerticalAxis } from '@dnd-kit/modifiers'
+import { CSS } from '@dnd-kit/utilities'
 
 const { Header, Content, Footer } = Layout
 const { Text } = Typography
@@ -643,44 +673,68 @@ const ProjectDrawer: React.FC<{
   )
 }
 
-// ─── LOAD MORE ROW ────────────────────────────────────────────────────────────
+// ─── TASKS TABLE ──────────────────────────────────────────────────────────────
 
-const LoadMoreRow: React.FC<{
-  remaining: number
-  onLoad: () => void
-  isDark: boolean
-  border: string
-}> = ({ remaining, onLoad, isDark, border }) => {
-  const [hovered, setHovered] = useState(false)
-  const hoverBg = isDark ? 'rgba(99,102,241,0.07)' : 'rgba(99,102,241,0.04)'
+// Context to pass drag listeners from SortableRow down to the drag-handle cell
+const DragHandleCtx = createContext<Record<string, unknown>>({})
+
+const SortableRow: React.FC<{ id: string; children: React.ReactNode; isDark: boolean }> = ({
+  id,
+  children,
+  isDark,
+}) => {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id })
   return (
-    <div
-      onClick={onLoad}
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
-      style={{
-        width: '100%',
-        padding: '9px 0',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        gap: 6,
-        cursor: 'pointer',
-        borderTop: `1px dashed ${border}`,
-        background: hovered ? hoverBg : 'transparent',
-        transition: 'background 0.15s',
-        userSelect: 'none',
-      }}
-    >
-      <PlusOutlined style={{ fontSize: 11, color: '#6366f1', opacity: 0.8 }} />
-      <Text style={{ fontSize: 12, color: '#6366f1', opacity: 0.85 }}>
-        Ver mais · {remaining} restante{remaining !== 1 ? 's' : ''}
-      </Text>
-    </div>
+    <DragHandleCtx.Provider value={listeners ?? {}}>
+      <tr
+        ref={setNodeRef}
+        className="klip-tr"
+        style={{
+          transform: CSS.Transform.toString(transform),
+          transition,
+          opacity: isDragging ? 0.5 : 1,
+          background: isDragging
+            ? isDark
+              ? 'rgba(99,102,241,0.15)'
+              : 'rgba(99,102,241,0.08)'
+            : undefined,
+          zIndex: isDragging ? 1 : undefined,
+          position: isDragging ? 'relative' : undefined,
+        }}
+        {...attributes}
+      >
+        {children}
+      </tr>
+    </DragHandleCtx.Provider>
   )
 }
 
-// ─── TASKS TABLE ──────────────────────────────────────────────────────────────
+const columnHelper = createColumnHelper<Task>()
+
+// Proper React component so useContext obeys hooks rules
+const DragCell: React.FC<{ isDark: boolean }> = ({ isDark }) => {
+  const listeners = useContext(DragHandleCtx)
+  return (
+    <span
+      {...listeners}
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        width: 32,
+        height: '100%',
+        cursor: 'grab',
+        color: isDark ? 'rgba(255,255,255,0.25)' : 'rgba(0,0,0,0.25)',
+        fontSize: 14,
+        opacity: 0,
+        transition: 'opacity 0.15s',
+      }}
+      className="drag-handle"
+    >
+      ⋮⋮
+    </span>
+  )
+}
 
 const TasksTable: React.FC<{
   onEdit: (t: Task) => void
@@ -688,49 +742,67 @@ const TasksTable: React.FC<{
 }> = ({ onEdit, filterPid }) => {
   const { tasks, projects, deleteTask, updateTask } = useAppData()
   const { isDark } = useTheme()
-  const [pageSize, setPageSize] = useState(10)
-  const [visibleCount, setVisibleCount] = useState(10)
-  const [tableSize, setTableSize] = useState<'small' | 'middle' | 'large'>('small')
+  const { token } = antTheme.useToken()
 
-  const scrollAreaRef = useRef<HTMLDivElement>(null)
-  const [scrollY, setScrollY] = useState(300)
+  // ── State ──────────────────────────────────────────────────────────────────
+  const [sorting, setSorting] = useState<SortingState>([])
+  const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([])
+  const [globalFilter, setGlobalFilter] = useState('')
+  const [columnResizeMode] = useState<ColumnResizeMode>('onChange')
+  const [rowOrder, setRowOrder] = useState<string[]>([])
+  const [hoveredRowId, setHoveredRowId] = useState<string | null>(null)
+  const [activeFilterCol, setActiveFilterCol] = useState<string | null>(null)
+  const [tableSize, setTableSize] = useState<'compact' | 'default' | 'comfortable'>('default')
 
-  useEffect(() => {
-    const el = scrollAreaRef.current
-    if (!el) return
-    const update = () => setScrollY(Math.max(100, el.clientHeight - 39))
-    update()
-    const ro = new ResizeObserver(update)
-    ro.observe(el)
-    return () => ro.disconnect()
-  }, [])
+  // ── Derived data ───────────────────────────────────────────────────────────
+  const projMap = useMemo(
+    () => Object.fromEntries(projects.map(p => [p.id, p])),
+    [projects]
+  )
+  const baseRows = useMemo(() => {
+    const filtered = filterPid ? tasks.filter(t => t.projectId === filterPid) : tasks
+    if (rowOrder.length === 0) return filtered
+    const orderMap = Object.fromEntries(rowOrder.map((id, i) => [id, i]))
+    return [...filtered].sort((a, b) => (orderMap[a.id] ?? 999) - (orderMap[b.id] ?? 999))
+  }, [tasks, filterPid, rowOrder])
 
-  const all = filterPid ? tasks.filter(t => t.projectId === filterPid) : tasks
-  const data = all.slice(0, visibleCount)
-  const projMap = Object.fromEntries(projects.map(p => [p.id, p]))
-  const border = isDark ? '#3a3a3a' : 'rgba(0,0,0,0.07)'
+  // ── Row height by density ──────────────────────────────────────────────────
+  const ROW_HEIGHT = tableSize === 'compact' ? 36 : tableSize === 'comfortable' ? 56 : 44
 
-  const handlePageSizeChange = (v: number) => {
-    setPageSize(v)
-    setVisibleCount(v)
-  }
+  // ── Colors ─────────────────────────────────────────────────────────────────
+  const border = isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.07)'
+  const headerBg = isDark ? 'rgba(255,255,255,0.03)' : token.colorBgLayout
+  const rowHover = isDark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.025)'
 
-  const columns: TableColumnsType<Task> = [
-    {
-      key: 'done',
-      width: 36,
-      render: (_: unknown, r: Task) => {
+  // ── Column definitions ─────────────────────────────────────────────────────
+  const columns = useMemo<ColumnDef<Task, any>[]>(() => [
+    columnHelper.display({
+      id: 'drag',
+      size: 32,
+      minSize: 32,
+      maxSize: 32,
+      enableResizing: false,
+      cell: () => <DragCell isDark={isDark} />,
+    }),
+    columnHelper.display({
+      id: 'done',
+      size: 36,
+      minSize: 36,
+      maxSize: 36,
+      enableResizing: false,
+      cell: ({ row }) => {
+        const r = row.original
         const isDone = r.status === 'done'
         return (
           <Tooltip title={isDone ? 'Marcar como pendente' : 'Marcar como concluída'} placement="right">
             <button
               onClick={() => updateTask(r.id, { status: isDone ? 'todo' : 'done' })}
               style={{
-                width: 20,
-                height: 20,
+                width: 18,
+                height: 18,
                 borderRadius: '50%',
-                border: `2px solid ${isDone ? '#10b981' : isDark ? '#555' : '#ccc'}`,
-                background: isDone ? '#10b981' : 'transparent',
+                border: 'none',
+                background: 'transparent',
                 cursor: 'pointer',
                 display: 'flex',
                 alignItems: 'center',
@@ -740,192 +812,633 @@ const TasksTable: React.FC<{
                 flexShrink: 0,
               }}
             >
-              {isDone && (
-                <CheckCircleOutlined style={{ fontSize: 11, color: '#fff', lineHeight: 1 }} />
+              {isDone ? (
+                <CheckCircleOutlined style={{ fontSize: 18, color: '#10b981' }} />
+              ) : (
+                <span
+                  style={{
+                    display: 'block',
+                    width: 16,
+                    height: 16,
+                    borderRadius: '50%',
+                    border: `1.5px solid ${isDark ? '#555' : '#ccc'}`,
+                    transition: 'border-color 0.15s',
+                  }}
+                />
               )}
             </button>
           </Tooltip>
         )
       },
-    },
-    {
-      title: 'Tarefa',
-      dataIndex: 'title',
-      key: 'title',
-      ellipsis: true,
-      render: (text: string, r: Task) => (
-        <div style={{ opacity: r.status === 'done' ? 0.45 : 1, transition: 'opacity 0.15s' }}>
-          <Text strong style={{ fontSize: 13, textDecoration: r.status === 'done' ? 'line-through' : 'none' }}>
-            {text}
-          </Text>
-          {r.description && (
-            <div>
-              <Text type="secondary" style={{ fontSize: 11 }}>{r.description}</Text>
-            </div>
-          )}
-        </div>
-      ),
-    },
-    {
-      title: 'Status',
-      dataIndex: 'status',
-      key: 'status',
-      width: 148,
-      filters: Object.entries(STATUS_CONFIG).map(([k, v]) => ({ text: v.label, value: k })),
-      onFilter: (v, r) => r.status === (v as TaskStatus),
-      render: (s: TaskStatus, r: Task) => (
-        <Select
-          size="small"
-          value={s}
-          variant="borderless"
-          onChange={(val: TaskStatus) => updateTask(r.id, { status: val })}
-          style={{ width: '100%' }}
-          popupMatchSelectWidth={false}
-          options={Object.entries(STATUS_CONFIG).map(([k, v]) => ({
-            value: k,
-            label: <Tag color={v.color} style={{ margin: 0 }}>{v.label}</Tag>,
-          }))}
-        />
-      ),
-    },
-    {
-      title: 'Prioridade',
-      dataIndex: 'priority',
-      key: 'priority',
-      width: 110,
-      filters: Object.entries(PRIORITY_CONFIG).map(([k, v]) => ({ text: v.label, value: k })),
-      onFilter: (v, r) => r.priority === (v as TaskPriority),
-      render: (p: TaskPriority) => (
-        <Tag color={PRIORITY_CONFIG[p].color} style={{ margin: 0 }}>
-          {PRIORITY_CONFIG[p].label}
-        </Tag>
-      ),
-    },
-    {
-      title: 'Projeto',
-      dataIndex: 'projectId',
-      key: 'project',
-      width: 140,
-      render: (id: string) => {
-        const proj = projMap[id]
+    }),
+    columnHelper.accessor('title', {
+      id: 'title',
+      header: 'Tarefa',
+      size: 260,
+      minSize: 120,
+      cell: ({ getValue, row }) => {
+        const r = row.original
+        const isDone = r.status === 'done'
         return (
-          <Tag style={{
-            borderLeft: `3px solid ${proj?.color ?? '#ccc'}`,
-            margin: 0,
-            paddingLeft: 6,
-          }}>
-            {proj?.name ?? id}
+          <div
+            onClick={() => onEdit(r)}
+            style={{
+              opacity: isDone ? 0.45 : 1,
+              minWidth: 0,
+              overflow: 'hidden',
+              cursor: 'pointer',
+            }}
+          >
+            <Text
+              strong
+              style={{
+                fontSize: 13,
+                textDecoration: isDone ? 'line-through' : 'none',
+                display: 'block',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap',
+              }}
+            >
+              {getValue()}
+            </Text>
+            {r.description && tableSize !== 'compact' && (
+              <Text
+                type="secondary"
+                style={{
+                  fontSize: 11,
+                  display: 'block',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                {r.description}
+              </Text>
+            )}
+          </div>
+        )
+      },
+      filterFn: 'includesString',
+    }),
+    columnHelper.accessor('status', {
+      id: 'status',
+      header: 'Status',
+      size: 148,
+      minSize: 80,
+      cell: ({ getValue, row }) => {
+        const s = getValue()
+        const r = row.original
+        return (
+          <Select
+            size="small"
+            value={s}
+            variant="borderless"
+            onChange={(val: TaskStatus) => updateTask(r.id, { status: val })}
+            style={{ width: '100%' }}
+            popupMatchSelectWidth={false}
+            options={Object.entries(STATUS_CONFIG).map(([k, v]) => ({
+              value: k,
+              label: <Tag color={v.color} style={{ margin: 0 }}>{v.label}</Tag>,
+            }))}
+          />
+        )
+      },
+      filterFn: (row, colId, filterValue) => row.getValue(colId) === filterValue,
+    }),
+    columnHelper.accessor('priority', {
+      id: 'priority',
+      header: 'Prioridade',
+      size: 110,
+      minSize: 80,
+      cell: ({ getValue }) => {
+        const p = getValue()
+        return (
+          <Tag color={PRIORITY_CONFIG[p].color} style={{ margin: 0 }}>
+            {PRIORITY_CONFIG[p].label}
           </Tag>
         )
       },
-    },
-    {
-      title: 'Responsável',
-      dataIndex: 'assignee',
-      key: 'assignee',
-      width: 130,
-      render: (a?: string) =>
-        a ? (
+      filterFn: (row, colId, filterValue) => row.getValue(colId) === filterValue,
+    }),
+    columnHelper.accessor('projectId', {
+      id: 'project',
+      header: 'Projeto',
+      size: 140,
+      minSize: 80,
+      cell: ({ getValue }) => {
+        const proj = projMap[getValue()]
+        return (
+          <Tag
+            style={{
+              borderLeft: `3px solid ${proj?.color ?? '#ccc'}`,
+              margin: 0,
+              paddingLeft: 6,
+              maxWidth: '100%',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            {proj?.name ?? getValue()}
+          </Tag>
+        )
+      },
+      filterFn: (row, colId, filterValue) => row.getValue(colId) === filterValue,
+    }),
+    columnHelper.accessor('assignee', {
+      id: 'assignee',
+      header: 'Responsável',
+      size: 130,
+      minSize: 80,
+      cell: ({ getValue }) => {
+        const a = getValue()
+        return a ? (
           <Space size={4}>
             <Avatar size={18} style={{ backgroundColor: '#6366f1', fontSize: 10 }}>{a[0]}</Avatar>
             <Text style={{ fontSize: 12 }}>{a}</Text>
           </Space>
         ) : (
           <Text type="secondary" style={{ fontSize: 12 }}>—</Text>
-        ),
-    },
-    {
-      title: 'Prazo',
-      dataIndex: 'dueDate',
-      key: 'dueDate',
-      width: 100,
-      sorter: (a, b) => (a.dueDate ?? '').localeCompare(b.dueDate ?? ''),
-      render: (d?: string) =>
-        d ? (
-          <Text style={{ fontSize: 12 }}>{new Date(d + 'T12:00:00').toLocaleDateString('pt-BR')}</Text>
+        )
+      },
+      filterFn: (row, colId, filterValue) => row.getValue(colId) === filterValue,
+    }),
+    columnHelper.accessor('dueDate', {
+      id: 'dueDate',
+      header: 'Prazo',
+      size: 100,
+      minSize: 70,
+      cell: ({ getValue }) => {
+        const d = getValue()
+        return d ? (
+          <Text style={{ fontSize: 12 }}>
+            {new Date(d + 'T12:00:00').toLocaleDateString('pt-BR')}
+          </Text>
         ) : (
           <Text type="secondary" style={{ fontSize: 12 }}>—</Text>
-        ),
-    },
-    {
-      title: '',
-      key: 'actions',
-      width: 68,
-      render: (_: unknown, r: Task) => (
-        <Space size={2}>
-          <Tooltip title="Editar">
-            <Button type="text" size="small" icon={<EditOutlined />} onClick={() => onEdit(r)} />
-          </Tooltip>
-          <Tooltip title="Remover">
-            <Button type="text" size="small" danger icon={<DeleteOutlined />} onClick={() => deleteTask(r.id)} />
-          </Tooltip>
-        </Space>
-      ),
-    },
-  ]
+        )
+      },
+      sortingFn: 'alphanumeric',
+    }),
+    columnHelper.display({
+      id: 'actions',
+      size: 72,
+      minSize: 72,
+      maxSize: 72,
+      enableResizing: false,
+      cell: ({ row }) => {
+        const r = row.original
+        return (
+          <Space size={2} className="row-actions">
+            <Tooltip title="Editar">
+              <Button type="text" size="small" icon={<EditOutlined />} onClick={() => onEdit(r)} />
+            </Tooltip>
+            <Tooltip title="Remover">
+              <Button
+                type="text"
+                size="small"
+                danger
+                icon={<DeleteOutlined />}
+                onClick={() => deleteTask(r.id)}
+              />
+            </Tooltip>
+          </Space>
+        )
+      },
+    }),
+  ], [isDark, projMap, updateTask, deleteTask, onEdit, tableSize])
 
+  // ── Table instance ─────────────────────────────────────────────────────────
+  const table = useReactTable({
+    data: baseRows,
+    columns,
+    state: { sorting, columnFilters, globalFilter },
+    onSortingChange: setSorting,
+    onColumnFiltersChange: setColumnFilters,
+    onGlobalFilterChange: setGlobalFilter,
+    getCoreRowModel: getCoreRowModel(),
+    getSortedRowModel: getSortedRowModel(),
+    getFilteredRowModel: getFilteredRowModel(),
+    columnResizeMode,
+    enableColumnResizing: true,
+    getRowId: row => row.id,
+  })
+
+  const { rows } = table.getRowModel()
+
+  // ── Virtualizer ────────────────────────────────────────────────────────────
+  const scrollAreaRef = useRef<HTMLDivElement>(null)
+  const virtualizer = useVirtualizer({
+    count: rows.length,
+    getScrollElement: () => scrollAreaRef.current,
+    estimateSize: () => ROW_HEIGHT,
+    overscan: 10,
+  })
+  const virtualRows = virtualizer.getVirtualItems()
+  const totalHeight = virtualizer.getTotalSize()
+  const paddingTop = virtualRows.length > 0 ? virtualRows[0].start : 0
+  const paddingBottom =
+    virtualRows.length > 0
+      ? totalHeight - (virtualRows[virtualRows.length - 1]?.end ?? 0)
+      : 0
+
+  // ── DnD sensors ───────────────────────────────────────────────────────────
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
+  )
+
+  const handleDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event
+    if (!over || active.id === over.id) return
+    setRowOrder(prev => {
+      const ids = prev.length ? prev : baseRows.map(r => r.id)
+      const oldIdx = ids.indexOf(active.id as string)
+      const newIdx = ids.indexOf(over.id as string)
+      return arrayMove(ids, oldIdx, newIdx)
+    })
+  }
+
+  // ── Filter helpers ─────────────────────────────────────────────────────────
+  const getColumnFilter = (colId: string) =>
+    columnFilters.find(f => f.id === colId)?.value as string | undefined
+
+  const setColumnFilter = (colId: string, value: string | undefined) => {
+    setColumnFilters(prev => {
+      const rest = prev.filter(f => f.id !== colId)
+      return value ? [...rest, { id: colId, value }] : rest
+    })
+  }
+
+  // ── Layout ─────────────────────────────────────────────────────────────────
+  const HEADER_HEIGHT = 36
+  const TOOLBAR_HEIGHT = 44
+  const wrapRef = useRef<HTMLDivElement>(null)
+
+  // ── CSS-in-JS (injected once) ──────────────────────────────────────────────
+  useEffect(() => {
+    const id = 'klip-table-styles'
+    if (document.getElementById(id)) return
+    const style = document.createElement('style')
+    style.id = id
+    style.textContent = `
+      .klip-tr:hover .drag-handle { opacity: 1 !important; }
+      .klip-th-resizer {
+        position: absolute; right: 0; top: 0;
+        width: 4px; height: 100%;
+        cursor: col-resize; user-select: none;
+        background: transparent;
+        transition: background 0.15s;
+      }
+      .klip-th-resizer:hover,
+      .klip-th-resizer.isResizing { background: #6366f1; }
+    `
+    document.head.appendChild(style)
+  }, [])
+
+  const tableWidth = table.getCenterTotalSize()
+
+  // ── Render ─────────────────────────────────────────────────────────────────
   return (
-    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0, overflow: 'hidden' }}>
-      <div ref={scrollAreaRef} style={{ flex: 1, minHeight: 0, overflow: 'hidden' }}>
-        <Table
-          columns={columns}
-          dataSource={data}
-          rowKey="id"
-          size={tableSize}
-          pagination={false}
-          scroll={{ x: 780, y: scrollY }}
-          locale={{ emptyText: <Empty description="Nenhuma tarefa encontrada" /> }}
+    <div
+      ref={wrapRef}
+      style={{
+        flex: 1,
+        display: 'flex',
+        flexDirection: 'column',
+        minHeight: 0,
+        overflow: 'hidden',
+      }}
+    >
+      {/* ── Toolbar ── */}
+      <div
+        style={{
+          height: TOOLBAR_HEIGHT,
+          display: 'flex',
+          alignItems: 'center',
+          gap: 8,
+          padding: '0 12px',
+          borderBottom: `1px solid ${border}`,
+          flexShrink: 0,
+        }}
+      >
+        <Input
+          size="small"
+          placeholder="Buscar em todas as colunas…"
+          prefix={<SearchOutlined style={{ color: token.colorTextQuaternary }} />}
+          value={globalFilter}
+          onChange={e => setGlobalFilter(e.target.value)}
+          allowClear
+          style={{ width: 220 }}
+        />
+        <div style={{ flex: 1 }} />
+        <Select
+          size="small"
+          value={tableSize}
+          onChange={setTableSize}
+          style={{ width: 120 }}
+          options={[
+            { label: 'Compacto', value: 'compact' },
+            { label: 'Padrão', value: 'default' },
+            { label: 'Confortável', value: 'comfortable' },
+          ]}
         />
       </div>
 
-      {/* ── VER MAIS — full-width row ── */}
-      {visibleCount < all.length && (
-        <LoadMoreRow
-          remaining={all.length - visibleCount}
-          onLoad={() => setVisibleCount(v => v + pageSize)}
-          isDark={isDark}
-          border={border}
-        />
-      )}
+      {/* ── Table scroll area ── */}
+      <div
+        ref={scrollAreaRef}
+        style={{
+          flex: 1,
+          overflowY: 'auto',
+          overflowX: 'auto',
+          minHeight: 0,
+        }}
+      >
+        <DndContext
+          sensors={sensors}
+          collisionDetection={closestCenter}
+          modifiers={[restrictToVerticalAxis]}
+          onDragEnd={handleDragEnd}
+        >
+          <table
+            style={{
+              width: Math.max(tableWidth, 600),
+              minWidth: '100%',
+              borderCollapse: 'collapse',
+              tableLayout: 'fixed',
+            }}
+          >
+            {/* ── COL groups for width ── */}
+            <colgroup>
+              {table.getFlatHeaders().map(h => (
+                <col key={h.id} style={{ width: h.getSize() }} />
+              ))}
+            </colgroup>
 
-      {/* ── TABLE TOOLBAR ── */}
-      <div style={{
-        padding: '8px 16px',
-        borderTop: `1px solid ${border}`,
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        gap: 8,
-        flexShrink: 0,
-      }}>
-        <Text type="secondary" style={{ fontSize: 12 }}>
-          {Math.min(visibleCount, all.length)} de {all.length} tarefa{all.length !== 1 ? 's' : ''}
+            {/* ── Header ── */}
+            <thead style={{ position: 'sticky', top: 0, zIndex: 2 }}>
+              {table.getHeaderGroups().map(hg => (
+                <tr key={hg.id}>
+                  {hg.headers.map(header => {
+                    const canSort = header.column.getCanSort()
+                    const sortDir = header.column.getIsSorted()
+                    const colId = header.column.id
+                    const isFilterable = ['title', 'status', 'priority', 'project', 'assignee'].includes(colId)
+                    const hasFilter = !!getColumnFilter(colId)
+
+                    return (
+                      <th
+                        key={header.id}
+                        style={{
+                          position: colId === 'drag' || colId === 'done' ? 'sticky' : 'relative',
+                          left: colId === 'drag' ? 0 : colId === 'done' ? 32 : undefined,
+                          zIndex: colId === 'drag' || colId === 'done' ? 4 : undefined,
+                          height: HEADER_HEIGHT,
+                          padding: '0 10px',
+                          background: headerBg,
+                          borderBottom: `2px solid ${border}`,
+                          borderRight: colId === 'drag' ? 'none' : `1px solid ${border}`,
+                          boxShadow: colId === 'done' ? `2px 0 8px -2px rgba(0,0,0,0.2)` : undefined,
+                          fontSize: 12,
+                          fontWeight: 600,
+                          color: token.colorTextSecondary,
+                          textAlign: 'left',
+                          userSelect: 'none',
+                          whiteSpace: 'nowrap',
+                          overflow: 'hidden',
+                        }}
+                      >
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                          {/* Sortable title */}
+                          {canSort ? (
+                            <button
+                              onClick={header.column.getToggleSortingHandler()}
+                              style={{
+                                background: 'none',
+                                border: 'none',
+                                cursor: 'pointer',
+                                padding: 0,
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: 3,
+                                color: 'inherit',
+                                fontSize: 'inherit',
+                                fontWeight: 'inherit',
+                              }}
+                            >
+                              {flexRender(header.column.columnDef.header, header.getContext())}
+                              <span style={{ fontSize: 10, opacity: sortDir ? 1 : 0.3 }}>
+                                {sortDir === 'asc' ? '▲' : sortDir === 'desc' ? '▼' : '▲'}
+                              </span>
+                            </button>
+                          ) : (
+                            <span>{flexRender(header.column.columnDef.header, header.getContext())}</span>
+                          )}
+
+                          {/* Filter popover */}
+                          {isFilterable && (
+                            <Tooltip
+                              title={
+                                <div style={{ padding: 4 }} onClick={e => e.stopPropagation()}>
+                                  {colId === 'title' ? (
+                                    <Input
+                                      size="small"
+                                      placeholder="Filtrar…"
+                                      value={getColumnFilter(colId) ?? ''}
+                                      onChange={e => setColumnFilter(colId, e.target.value || undefined)}
+                                      allowClear
+                                      autoFocus
+                                      style={{ width: 160 }}
+                                    />
+                                  ) : (
+                                    <Select
+                                      size="small"
+                                      placeholder="Todos"
+                                      allowClear
+                                      value={getColumnFilter(colId)}
+                                      onChange={v => setColumnFilter(colId, v)}
+                                      style={{ width: 160 }}
+                                      options={
+                                        colId === 'status'
+                                          ? Object.entries(STATUS_CONFIG).map(([k, v]) => ({ value: k, label: v.label }))
+                                          : colId === 'priority'
+                                            ? Object.entries(PRIORITY_CONFIG).map(([k, v]) => ({ value: k, label: v.label }))
+                                            : colId === 'project'
+                                              ? projects.map(p => ({ value: p.id, label: p.name }))
+                                              : [...new Set(baseRows.map(r => r.assignee).filter(Boolean))].map(a => ({ value: a, label: a }))
+                                      }
+                                    />
+                                  )}
+                                </div>
+                              }
+                              trigger="click"
+                              open={activeFilterCol === colId}
+                              onOpenChange={open => setActiveFilterCol(open ? colId : null)}
+                              color={isDark ? '#1f1f1f' : '#fff'}
+                              overlayInnerStyle={{ padding: 8 }}
+                            >
+                              <button
+                                onClick={e => {
+                                  e.stopPropagation()
+                                  setActiveFilterCol(activeFilterCol === colId ? null : colId)
+                                }}
+                                style={{
+                                  background: 'none',
+                                  border: 'none',
+                                  cursor: 'pointer',
+                                  padding: '0 2px',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  color: hasFilter ? token.colorPrimary : token.colorTextQuaternary,
+                                  fontSize: 11,
+                                }}
+                              >
+                                ▾
+                              </button>
+                            </Tooltip>
+                          )}
+                        </div>
+
+                        {/* Resize handle */}
+                        {header.column.getCanResize() && (
+                          <div
+                            onMouseDown={header.getResizeHandler()}
+                            onTouchStart={header.getResizeHandler()}
+                            className={`klip-th-resizer${header.column.getIsResizing() ? ' isResizing' : ''}`}
+                          />
+                        )}
+                      </th>
+                    )
+                  })}
+                </tr>
+              ))}
+            </thead>
+
+            {/* ── Body ── */}
+            <tbody>
+              {/* Virtual padding top */}
+              {paddingTop > 0 && (
+                <tr><td style={{ height: paddingTop }} colSpan={columns.length} /></tr>
+              )}
+
+              <SortableContext
+                items={rows.map(r => r.id)}
+                strategy={verticalListSortingStrategy}
+              >
+                {virtualRows.map(vRow => {
+                  const row = rows[vRow.index]
+                  if (!row) return null
+                  return (
+                    <SortableRow
+                      key={row.id}
+                      id={row.id}
+                      isDark={isDark}
+                    >
+                      {row.getVisibleCells().map(cell => {
+                        const cellColId = cell.column.id
+                        const isSticky = cellColId === 'drag' || cellColId === 'done'
+                        const stickyLeft = cellColId === 'drag' ? 0 : cellColId === 'done' ? 32 : undefined
+                        const stickyBg = isSticky
+                          ? hoveredRowId === row.id
+                            ? isDark ? 'rgba(45,45,60,0.95)' : 'rgba(238,238,255,0.95)'
+                            : row.original.status === 'done'
+                              ? isDark ? 'rgba(16,185,129,0.20)' : 'rgba(16,185,129,0.13)'
+                              : isDark ? 'rgba(18,18,24,0.93)' : 'rgba(255,255,255,0.93)'
+                          : undefined
+                        return (
+                          <td
+                            key={cell.id}
+                            onMouseEnter={() => setHoveredRowId(row.id)}
+                            onMouseLeave={() => setHoveredRowId(null)}
+                            className={cellColId === 'done' ? 'klip-sticky-shadow' : undefined}
+                            style={{
+                              position: isSticky ? 'sticky' : undefined,
+                              left: stickyLeft,
+                              zIndex: isSticky ? 1 : undefined,
+                              height: ROW_HEIGHT,
+                              padding: '0 10px',
+                              borderBottom: `1px solid ${border}`,
+                              borderRight: cellColId === 'drag' ? 'none' : `1px solid ${border}`,
+                              boxShadow: cellColId === 'done' ? `2px 0 8px -2px rgba(0,0,0,0.2)` : undefined,
+                              overflow: 'hidden',
+                              background: isSticky ? stickyBg : (
+                                hoveredRowId === row.id
+                                  ? rowHover
+                                  : row.original.status === 'done'
+                                    ? isDark ? 'rgba(16,185,129,0.03)' : 'rgba(16,185,129,0.02)'
+                                    : undefined
+                              ),
+                              backdropFilter: isSticky ? 'blur(10px)' : undefined,
+                              WebkitBackdropFilter: isSticky ? 'blur(10px)' : undefined,
+                              transition: 'background 0.1s',
+                              verticalAlign: 'middle',
+                            }}
+                          >
+                            {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                          </td>
+                        )
+                      })}
+                    </SortableRow>
+                  )
+                })}
+              </SortableContext>
+
+              {/* Virtual padding bottom */}
+              {paddingBottom > 0 && (
+                <tr><td style={{ height: paddingBottom }} colSpan={columns.length} /></tr>
+              )}
+
+              {/* Empty state */}
+              {rows.length === 0 && (
+                <tr>
+                  <td
+                    colSpan={columns.length}
+                    style={{
+                      textAlign: 'center',
+                      padding: '48px 0',
+                      borderBottom: `1px solid ${border}`,
+                    }}
+                  >
+                    <Empty description="Nenhuma tarefa encontrada" />
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </DndContext>
+      </div>
+
+      {/* ── Footer ── */}
+      <div
+        style={{
+          height: 32,
+          display: 'flex',
+          alignItems: 'center',
+          padding: '0 12px',
+          borderTop: `1px solid ${border}`,
+          flexShrink: 0,
+          gap: 8,
+        }}
+      >
+        <Text type="secondary" style={{ fontSize: 11 }}>
+          {rows.length} de {baseRows.length} tarefa{baseRows.length !== 1 ? 's' : ''}
+          {columnFilters.length > 0 || globalFilter ? ' (filtradas)' : ''}
         </Text>
-        <Space size={6}>
-          <Select
+        {(columnFilters.length > 0 || globalFilter) && (
+          <Button
             size="small"
-            value={tableSize}
-            onChange={setTableSize}
-            style={{ width: 108 }}
-            options={[
-              { label: 'Compacto', value: 'small' },
-              { label: 'Padrão', value: 'middle' },
-              { label: 'Espaçoso', value: 'large' },
-            ]}
-          />
-          <Select
-            size="small"
-            value={pageSize}
-            onChange={handlePageSizeChange}
-            style={{ width: 80 }}
-            options={[
-              { label: '5 / vez', value: 5 },
-              { label: '10 / vez', value: 10 },
-              { label: '20 / vez', value: 20 },
-              { label: '50 / vez', value: 50 },
-            ]}
-          />
-        </Space>
+            type="link"
+            style={{ fontSize: 11, padding: 0, height: 'auto' }}
+            onClick={() => {
+              setColumnFilters([])
+              setGlobalFilter('')
+            }}
+          >
+            Limpar filtros
+          </Button>
+        )}
       </div>
     </div>
   )
