@@ -1616,12 +1616,18 @@ const CalendarView: React.FC = () => {
 
   return (
     <div style={{
+      flex: 1,
+      minHeight: 0,
+      display: 'flex',
+      flexDirection: 'column',
+      overflow: 'hidden',
       background: isDark ? 'rgba(22,22,22,0.85)' : 'rgba(255,255,255,0.72)',
       border: `1px solid ${border}`,
-      padding: 16,
       ...glass,
     }}>
-      <Calendar cellRender={cellRender} />
+      <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: 16 }}>
+        <Calendar cellRender={cellRender} />
+      </div>
     </div>
   )
 }
@@ -1674,118 +1680,135 @@ const UserSettingsView: React.FC = () => {
   ]
 
   return (
-    <div style={{ maxWidth: 720, margin: '0 auto', display: 'flex', flexDirection: 'column', gap: 24 }}>
+    <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 24 }}>
       {/* Profile */}
-      <Card title="Perfil" style={{ background: cardBg, border: `1px solid ${border}` }}>
-        <Space size={24} align="start">
-          <Avatar size={72} icon={<UserOutlined />} style={{ background: '#6366f1', flexShrink: 0 }} />
-          <Form layout="vertical" style={{ flex: 1 }}>
+      <div style={{ background: cardBg, border: `1px solid ${border}` }}>
+        <div style={{ padding: '10px 16px', borderBottom: `1px solid ${border}`, display: 'flex', alignItems: 'center', flexShrink: 0 }}>
+          <Text strong style={{ fontSize: 13 }}>Perfil</Text>
+        </div>
+        <div style={{ padding: 16 }}>
+          <Space size={24} align="start">
+            <Avatar size={72} icon={<UserOutlined />} style={{ background: '#6366f1', flexShrink: 0 }} />
+            <Form layout="vertical" style={{ flex: 1 }}>
+              <Row gutter={16}>
+                <Col span={12}>
+                  <Form.Item label="Nome completo">
+                    <Input defaultValue="Lucas Dev" />
+                  </Form.Item>
+                </Col>
+                <Col span={12}>
+                  <Form.Item label="E-mail">
+                    <Input defaultValue="lucas@example.com" />
+                  </Form.Item>
+                </Col>
+              </Row>
+              <Button type="primary">Salvar perfil</Button>
+            </Form>
+          </Space>
+        </div>
+      </div>
+
+      {/* Account links */}
+      <div style={{ background: cardBg, border: `1px solid ${border}` }}>
+        <div style={{ padding: '10px 16px', borderBottom: `1px solid ${border}`, display: 'flex', alignItems: 'center', flexShrink: 0 }}>
+          <Text strong style={{ fontSize: 13 }}>Contas vinculadas</Text>
+        </div>
+        <div style={{ padding: 16 }}>
+          <Space direction="vertical" style={{ width: '100%' }} size={16}>
+            {[
+              { icon: <GithubOutlined />, label: 'GitHub', connected: true },
+              { icon: <GlobalOutlined />, label: 'Google', connected: false },
+              { icon: <LinkOutlined />, label: 'Microsoft', connected: false },
+            ].map(item => (
+              <div key={item.label} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <Space>
+                  {item.icon}
+                  <Text>{item.label}</Text>
+                  {item.connected && <Tag color="success">Conectado</Tag>}
+                </Space>
+                <Button size="small">{item.connected ? 'Desvincular' : 'Vincular'}</Button>
+              </div>
+            ))}
+          </Space>
+        </div>
+      </div>
+
+      {/* API Tokens */}
+      <div style={{ background: cardBg, border: `1px solid ${border}` }}>
+        <div style={{ padding: '10px 16px', borderBottom: `1px solid ${border}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexShrink: 0 }}>
+          <Text strong style={{ fontSize: 13 }}>Tokens de API</Text>
+          <Button size="small" type="primary" onClick={() => setTokenModalOpen(true)}>Novo token</Button>
+        </div>
+        <div style={{ padding: 16 }}>
+          {newTokenVisible && (
+            <Alert
+              type="success"
+              showIcon
+              style={{ marginBottom: 12 }}
+              message="Token criado — copie agora, ele não será exibido novamente."
+              description={
+                <Space>
+                  <code style={{ wordBreak: 'break-all' }}>{newTokenVisible}</code>
+                  <Button
+                    size="small"
+                    icon={<CopyOutlined />}
+                    onClick={() => { navigator.clipboard.writeText(newTokenVisible); setNewTokenVisible(null) }}
+                  >
+                    Copiar e fechar
+                  </Button>
+                </Space>
+              }
+              closable
+              onClose={() => setNewTokenVisible(null)}
+            />
+          )}
+          <Table
+            dataSource={tokens}
+            columns={tokenColumns}
+            rowKey="id"
+            pagination={false}
+            size="small"
+          />
+        </div>
+      </div>
+
+      {/* LLM Settings */}
+      <div style={{ background: cardBg, border: `1px solid ${border}` }}>
+        <div style={{ padding: '10px 16px', borderBottom: `1px solid ${border}`, display: 'flex', alignItems: 'center', flexShrink: 0 }}>
+          <Text strong style={{ fontSize: 13 }}>Configurações de LLM</Text>
+        </div>
+        <div style={{ padding: 16 }}>
+          <Form layout="vertical">
             <Row gutter={16}>
               <Col span={12}>
-                <Form.Item label="Nome completo">
-                  <Input defaultValue="Lucas Dev" />
+                <Form.Item label="Provedor">
+                  <Select defaultValue="openai">
+                    <Select.Option value="openai">OpenAI</Select.Option>
+                    <Select.Option value="anthropic">Anthropic</Select.Option>
+                    <Select.Option value="ollama">Ollama (local)</Select.Option>
+                  </Select>
                 </Form.Item>
               </Col>
               <Col span={12}>
-                <Form.Item label="E-mail">
-                  <Input defaultValue="lucas@example.com" />
+                <Form.Item label="Modelo">
+                  <Select defaultValue="gpt-4o">
+                    <Select.Option value="gpt-4o">GPT-4o</Select.Option>
+                    <Select.Option value="gpt-4o-mini">GPT-4o mini</Select.Option>
+                    <Select.Option value="claude-3-5-sonnet">claude-3-5-sonnet</Select.Option>
+                  </Select>
                 </Form.Item>
               </Col>
             </Row>
-            <Button type="primary">Salvar perfil</Button>
+            <Form.Item label="Chave de API">
+              <Input.Password placeholder="sk-..." />
+            </Form.Item>
+            <Form.Item label="Prompt de sistema (opcional)">
+              <Input.TextArea rows={3} placeholder="Você é um assistente de gestão de projetos..." />
+            </Form.Item>
+            <Button type="primary" icon={<RobotOutlined />}>Salvar configurações de LLM</Button>
           </Form>
-        </Space>
-      </Card>
-
-      {/* Account links */}
-      <Card title="Contas vinculadas" style={{ background: cardBg, border: `1px solid ${border}` }}>
-        <Space direction="vertical" style={{ width: '100%' }} size={16}>
-          {[
-            { icon: <GithubOutlined />, label: 'GitHub', connected: true },
-            { icon: <GlobalOutlined />, label: 'Google', connected: false },
-            { icon: <LinkOutlined />, label: 'Microsoft', connected: false },
-          ].map(item => (
-            <div key={item.label} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-              <Space>
-                {item.icon}
-                <Text>{item.label}</Text>
-                {item.connected && <Tag color="success">Conectado</Tag>}
-              </Space>
-              <Button size="small">{item.connected ? 'Desvincular' : 'Vincular'}</Button>
-            </div>
-          ))}
-        </Space>
-      </Card>
-
-      {/* API Tokens */}
-      <Card
-        title="Tokens de API"
-        style={{ background: cardBg, border: `1px solid ${border}` }}
-        extra={<Button size="small" type="primary" onClick={() => setTokenModalOpen(true)}>Novo token</Button>}
-      >
-        {newTokenVisible && (
-          <Alert
-            type="success"
-            showIcon
-            style={{ marginBottom: 12 }}
-            message="Token criado — copie agora, ele não será exibido novamente."
-            description={
-              <Space>
-                <code style={{ wordBreak: 'break-all' }}>{newTokenVisible}</code>
-                <Button
-                  size="small"
-                  icon={<CopyOutlined />}
-                  onClick={() => { navigator.clipboard.writeText(newTokenVisible); setNewTokenVisible(null) }}
-                >
-                  Copiar e fechar
-                </Button>
-              </Space>
-            }
-            closable
-            onClose={() => setNewTokenVisible(null)}
-          />
-        )}
-        <Table
-          dataSource={tokens}
-          columns={tokenColumns}
-          rowKey="id"
-          pagination={false}
-          size="small"
-        />
-      </Card>
-
-      {/* LLM Settings */}
-      <Card title="Configurações de LLM" style={{ background: cardBg, border: `1px solid ${border}` }}>
-        <Form layout="vertical">
-          <Row gutter={16}>
-            <Col span={12}>
-              <Form.Item label="Provedor">
-                <Select defaultValue="openai">
-                  <Select.Option value="openai">OpenAI</Select.Option>
-                  <Select.Option value="anthropic">Anthropic</Select.Option>
-                  <Select.Option value="ollama">Ollama (local)</Select.Option>
-                </Select>
-              </Form.Item>
-            </Col>
-            <Col span={12}>
-              <Form.Item label="Modelo">
-                <Select defaultValue="gpt-4o">
-                  <Select.Option value="gpt-4o">GPT-4o</Select.Option>
-                  <Select.Option value="gpt-4o-mini">GPT-4o mini</Select.Option>
-                  <Select.Option value="claude-3-5-sonnet">claude-3-5-sonnet</Select.Option>
-                </Select>
-              </Form.Item>
-            </Col>
-          </Row>
-          <Form.Item label="Chave de API">
-            <Input.Password placeholder="sk-..." />
-          </Form.Item>
-          <Form.Item label="Prompt de sistema (opcional)">
-            <Input.TextArea rows={3} placeholder="Você é um assistente de gestão de projetos..." />
-          </Form.Item>
-          <Button type="primary" icon={<RobotOutlined />}>Salvar configurações de LLM</Button>
-        </Form>
-      </Card>
+        </div>
+      </div>
 
       {/* New token modal */}
       <Modal
