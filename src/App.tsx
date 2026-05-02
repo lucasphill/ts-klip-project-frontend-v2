@@ -2066,7 +2066,10 @@ const MainApp: React.FC = () => {
       height: '100vh',
       background: isDark
         ? 'linear-gradient(160deg, #1c1c1c 0%, #0d0d0d 100%)'
-        : 'radial-gradient(ellipse at 20% 20%, #dcdcf4 0%, #f2f2fb 60%)',
+        : filterPid && currentProject
+          ? `radial-gradient(ellipse at 20% 20%, ${currentProject.color}30 0%, #f2f2fb 60%)`
+          : 'radial-gradient(ellipse at 20% 20%, #dcdcf4 0%, #f2f2fb 60%)',
+      transition: 'background 0.6s ease',
     }}>
       <Splitter
         style={{ height: '100vh' }}
