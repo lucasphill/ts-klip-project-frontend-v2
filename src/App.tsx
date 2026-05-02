@@ -61,6 +61,7 @@ import {
   CopyOutlined,
   GithubOutlined,
   GlobalOutlined,
+  FilterOutlined,
 } from '@ant-design/icons'
 import {
   useReactTable,
@@ -87,11 +88,12 @@ import {
 import {
   SortableContext,
   verticalListSortingStrategy,
+  horizontalListSortingStrategy,
   useSortable,
   arrayMove,
   sortableKeyboardCoordinates,
 } from '@dnd-kit/sortable'
-import { restrictToVerticalAxis } from '@dnd-kit/modifiers'
+import { restrictToVerticalAxis, restrictToHorizontalAxis } from '@dnd-kit/modifiers'
 import { CSS } from '@dnd-kit/utilities'
 
 const { Header, Content, Footer } = Layout
@@ -736,6 +738,33 @@ const DragCell: React.FC<{ isDark: boolean }> = ({ isDark }) => {
   )
 }
 
+// Draggable column header cell
+const SortableColTh: React.FC<{
+  colId: string
+  style?: React.CSSProperties
+  children: React.ReactNode
+}> = ({ colId, style, children }) => {
+  const { attributes, listeners, setNodeRef, isDragging, transform, transition } = useSortable({
+    id: `col__${colId}`,
+  })
+  return (
+    <th
+      ref={setNodeRef}
+      style={{
+        ...style,
+        opacity: isDragging ? 0.4 : 1,
+        transform: CSS.Transform.toString(transform),
+        transition: transition ?? undefined,
+        cursor: 'grab',
+      }}
+      {...attributes}
+      {...listeners}
+    >
+      {children}
+    </th>
+  )
+}
+
 const TasksTable: React.FC<{
   onEdit: (t: Task) => void
   filterPid?: string
@@ -753,6 +782,15 @@ const TasksTable: React.FC<{
   const [hoveredRowId, setHoveredRowId] = useState<string | null>(null)
   const [activeFilterCol, setActiveFilterCol] = useState<string | null>(null)
   const [tableSize, setTableSize] = useState<'compact' | 'default' | 'comfortable'>('default')
+
+  const FIXED_LEFT_COLS = ['drag', 'done']
+  const FIXED_RIGHT_COLS = ['actions']
+  const MIDDLE_COLS_DEFAULT = ['title', 'status', 'priority', 'project', 'assignee', 'dueDate']
+  const [middleColOrder, setMiddleColOrder] = useState<string[]>(MIDDLE_COLS_DEFAULT)
+  const columnOrder = useMemo(
+    () => [...FIXED_LEFT_COLS, ...middleColOrder, ...FIXED_RIGHT_COLS],
+    [middleColOrder]
+  )
 
   // ── Derived data ───────────────────────────────────────────────────────────
   const projMap = useMemo(
@@ -1013,7 +1051,7 @@ const TasksTable: React.FC<{
   const table = useReactTable({
     data: baseRows,
     columns,
-    state: { sorting, columnFilters, globalFilter },
+    state: { sorting, columnFilters, globalFilter, columnOrder },
     onSortingChange: setSorting,
     onColumnFiltersChange: setColumnFilters,
     onGlobalFilterChange: setGlobalFilter,
@@ -1049,7 +1087,20 @@ const TasksTable: React.FC<{
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
   )
 
-  const handleDragEnd = (event: DragEndEvent) => {
+  const handleColDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event
+    if (!over || active.id === over.id) return
+    const activeColId = (active.id as string).slice(5)
+    const overColId = (over.id as string).slice(5)
+    setMiddleColOrder(prev => {
+      const oldIdx = prev.indexOf(activeColId)
+      const newIdx = prev.indexOf(overColId)
+      if (oldIdx === -1 || newIdx === -1) return prev
+      return arrayMove(prev, oldIdx, newIdx)
+    })
+  }
+
+  const handleRowDragEnd = (event: DragEndEvent) => {
     const { active, over } = event
     if (!over || active.id === over.id) return
     setRowOrder(prev => {
@@ -1156,167 +1207,142 @@ const TasksTable: React.FC<{
           minHeight: 0,
         }}
       >
-        <DndContext
-          sensors={sensors}
-          collisionDetection={closestCenter}
-          modifiers={[restrictToVerticalAxis]}
-          onDragEnd={handleDragEnd}
+        <table
+          style={{
+            width: Math.max(tableWidth, 600),
+            minWidth: '100%',
+            borderCollapse: 'collapse',
+            tableLayout: 'fixed',
+          }}
         >
-          <table
-            style={{
-              width: Math.max(tableWidth, 600),
-              minWidth: '100%',
-              borderCollapse: 'collapse',
-              tableLayout: 'fixed',
-            }}
-          >
-            {/* ── COL groups for width ── */}
-            <colgroup>
-              {table.getFlatHeaders().map(h => (
-                <col key={h.id} style={{ width: h.getSize() }} />
-              ))}
-            </colgroup>
+          {/* ── COL groups for width ── */}
+          <colgroup>
+            {table.getFlatHeaders().map(h => (
+              <col key={h.id} style={{ width: h.getSize() }} />
+            ))}
+          </colgroup>
 
-            {/* ── Header ── */}
+          {/* ── Header ── */}
+          <DndContext
+            sensors={sensors}
+            collisionDetection={closestCenter}
+            modifiers={[restrictToHorizontalAxis]}
+            onDragEnd={handleColDragEnd}
+          >
             <thead style={{ position: 'sticky', top: 0, zIndex: 2 }}>
               {table.getHeaderGroups().map(hg => (
-                <tr key={hg.id}>
-                  {hg.headers.map(header => {
-                    const canSort = header.column.getCanSort()
-                    const sortDir = header.column.getIsSorted()
-                    const colId = header.column.id
-                    const isFilterable = ['title', 'status', 'priority', 'project', 'assignee'].includes(colId)
-                    const hasFilter = !!getColumnFilter(colId)
+                <SortableContext key={hg.id} items={middleColOrder.map(id => `col__${id}`)} strategy={horizontalListSortingStrategy}>
+                  <tr>
+                    {hg.headers.map(header => {
+                      const canSort = header.column.getCanSort()
+                      const sortDir = header.column.getIsSorted()
+                      const colId = header.column.id
+                      const isFixedCol = colId === 'drag' || colId === 'done' || colId === 'actions'
+                      const isFilterable = ['title', 'status', 'priority', 'project', 'assignee'].includes(colId)
+                      const hasFilter = !!getColumnFilter(colId)
 
-                    return (
-                      <th
-                        key={header.id}
-                        style={{
-                          position: colId === 'drag' || colId === 'done' ? 'sticky' : 'relative',
-                          left: colId === 'drag' ? 0 : colId === 'done' ? 32 : undefined,
-                          zIndex: colId === 'drag' || colId === 'done' ? 4 : undefined,
-                          height: HEADER_HEIGHT,
-                          padding: '0 10px',
-                          background: headerBg,
-                          borderBottom: `2px solid ${border}`,
-                          borderRight: colId === 'drag' ? 'none' : `1px solid ${border}`,
-                          boxShadow: colId === 'done' ? `2px 0 8px -2px rgba(0,0,0,0.2)` : undefined,
-                          fontSize: 12,
-                          fontWeight: 600,
-                          color: token.colorTextSecondary,
-                          textAlign: 'left',
-                          userSelect: 'none',
-                          whiteSpace: 'nowrap',
-                          overflow: 'hidden',
-                        }}
-                      >
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                          {/* Sortable title */}
-                          {canSort ? (
-                            <button
-                              onClick={header.column.getToggleSortingHandler()}
-                              style={{
-                                background: 'none',
-                                border: 'none',
-                                cursor: 'pointer',
-                                padding: 0,
-                                display: 'flex',
-                                alignItems: 'center',
-                                gap: 3,
-                                color: 'inherit',
-                                fontSize: 'inherit',
-                                fontWeight: 'inherit',
-                              }}
-                            >
-                              {flexRender(header.column.columnDef.header, header.getContext())}
-                              <span style={{ fontSize: 10, opacity: sortDir ? 1 : 0.3 }}>
-                                {sortDir === 'asc' ? '▲' : sortDir === 'desc' ? '▼' : '▲'}
-                              </span>
-                            </button>
-                          ) : (
-                            <span>{flexRender(header.column.columnDef.header, header.getContext())}</span>
-                          )}
+                      const thStyle: React.CSSProperties = {
+                        position: colId === 'drag' || colId === 'done' ? 'sticky' : 'relative',
+                        left: colId === 'drag' ? 0 : colId === 'done' ? 32 : undefined,
+                        zIndex: colId === 'drag' || colId === 'done' ? 4 : undefined,
+                        height: HEADER_HEIGHT,
+                        padding: '0 10px',
+                        background: headerBg,
+                        borderBottom: `2px solid ${border}`,
+                        borderRight: colId === 'drag' ? 'none' : `1px solid ${border}`,
+                        boxShadow: colId === 'done' ? `2px 0 8px -2px rgba(0,0,0,0.2)` : undefined,
+                        fontSize: 12,
+                        fontWeight: 600,
+                        color: token.colorTextSecondary,
+                        textAlign: 'left',
+                        userSelect: 'none',
+                        whiteSpace: 'nowrap',
+                        overflow: 'hidden',
+                      }
 
-                          {/* Filter popover */}
-                          {isFilterable && (
-                            <Tooltip
-                              title={
-                                <div style={{ padding: 4 }} onClick={e => e.stopPropagation()}>
-                                  {colId === 'title' ? (
-                                    <Input
-                                      size="small"
-                                      placeholder="Filtrar…"
-                                      value={getColumnFilter(colId) ?? ''}
-                                      onChange={e => setColumnFilter(colId, e.target.value || undefined)}
-                                      allowClear
-                                      autoFocus
-                                      style={{ width: 160 }}
-                                    />
-                                  ) : (
-                                    <Select
-                                      size="small"
-                                      placeholder="Todos"
-                                      allowClear
-                                      value={getColumnFilter(colId)}
-                                      onChange={v => setColumnFilter(colId, v)}
-                                      style={{ width: 160 }}
-                                      options={
-                                        colId === 'status'
-                                          ? Object.entries(STATUS_CONFIG).map(([k, v]) => ({ value: k, label: v.label }))
-                                          : colId === 'priority'
-                                            ? Object.entries(PRIORITY_CONFIG).map(([k, v]) => ({ value: k, label: v.label }))
-                                            : colId === 'project'
-                                              ? projects.map(p => ({ value: p.id, label: p.name }))
-                                              : [...new Set(baseRows.map(r => r.assignee).filter(Boolean))].map(a => ({ value: a, label: a }))
-                                      }
-                                    />
-                                  )}
-                                </div>
-                              }
-                              trigger="click"
-                              open={activeFilterCol === colId}
-                              onOpenChange={open => setActiveFilterCol(open ? colId : null)}
-                              color={isDark ? '#1f1f1f' : '#fff'}
-                              overlayInnerStyle={{ padding: 8 }}
-                            >
+                      const thContent = (
+                        <>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                            {canSort ? (
                               <button
-                                onClick={e => {
-                                  e.stopPropagation()
-                                  setActiveFilterCol(activeFilterCol === colId ? null : colId)
-                                }}
-                                style={{
-                                  background: 'none',
-                                  border: 'none',
-                                  cursor: 'pointer',
-                                  padding: '0 2px',
-                                  display: 'flex',
-                                  alignItems: 'center',
-                                  color: hasFilter ? token.colorPrimary : token.colorTextQuaternary,
-                                  fontSize: 11,
-                                }}
+                                onClick={header.column.getToggleSortingHandler()}
+                                onPointerDown={e => e.stopPropagation()}
+                                style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, display: 'flex', alignItems: 'center', gap: 3, color: 'inherit', fontSize: 'inherit', fontWeight: 'inherit' }}
                               >
-                                ▾
+                                {flexRender(header.column.columnDef.header, header.getContext())}
+                                <span style={{ fontSize: 10, opacity: sortDir ? 1 : 0.3 }}>
+                                  {sortDir === 'asc' ? '▲' : sortDir === 'desc' ? '▼' : '▲'}
+                                </span>
                               </button>
-                            </Tooltip>
-                          )}
-                        </div>
+                            ) : (
+                              <span>{flexRender(header.column.columnDef.header, header.getContext())}</span>
+                            )}
 
-                        {/* Resize handle */}
-                        {header.column.getCanResize() && (
-                          <div
-                            onMouseDown={header.getResizeHandler()}
-                            onTouchStart={header.getResizeHandler()}
-                            className={`klip-th-resizer${header.column.getIsResizing() ? ' isResizing' : ''}`}
-                          />
-                        )}
-                      </th>
-                    )
-                  })}
-                </tr>
+                            {isFilterable && (
+                              <Tooltip
+                                title={
+                                  <div style={{ padding: 4 }} onClick={e => e.stopPropagation()}>
+                                    {colId === 'title' ? (
+                                      <Input size="small" placeholder="Filtrar…" value={getColumnFilter(colId) ?? ''} onChange={e => setColumnFilter(colId, e.target.value || undefined)} allowClear autoFocus style={{ width: 160 }} />
+                                    ) : (
+                                      <Select size="small" placeholder="Todos" allowClear value={getColumnFilter(colId)} onChange={v => setColumnFilter(colId, v)} style={{ width: 160 }}
+                                        options={
+                                          colId === 'status' ? Object.entries(STATUS_CONFIG).map(([k, v]) => ({ value: k, label: v.label }))
+                                          : colId === 'priority' ? Object.entries(PRIORITY_CONFIG).map(([k, v]) => ({ value: k, label: v.label }))
+                                          : colId === 'project' ? projects.map(p => ({ value: p.id, label: p.name }))
+                                          : [...new Set(baseRows.map(r => r.assignee).filter(Boolean))].map(a => ({ value: a, label: a }))
+                                        }
+                                      />
+                                    )}
+                                  </div>
+                                }
+                                trigger="click"
+                                open={activeFilterCol === colId}
+                                onOpenChange={open => setActiveFilterCol(open ? colId : null)}
+                                color={isDark ? '#1f1f1f' : '#fff'}
+                                overlayInnerStyle={{ padding: 8 }}
+                              >
+                                <button
+                                  onPointerDown={e => e.stopPropagation()}
+                                  onClick={e => { e.stopPropagation(); setActiveFilterCol(activeFilterCol === colId ? null : colId) }}
+                                  style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '0 2px', display: 'flex', alignItems: 'center', color: hasFilter ? token.colorPrimary : token.colorTextQuaternary, fontSize: 11 }}
+                                >
+                                  <FilterOutlined style={{ fontSize: 10 }} />
+                                </button>
+                              </Tooltip>
+                            )}
+                          </div>
+
+                          {header.column.getCanResize() && (
+                            <div
+                              onMouseDown={header.getResizeHandler()}
+                              onTouchStart={header.getResizeHandler()}
+                              onPointerDown={e => e.stopPropagation()}
+                              className={`klip-th-resizer${header.column.getIsResizing() ? ' isResizing' : ''}`}
+                            />
+                          )}
+                        </>
+                      )
+
+                      return isFixedCol ? (
+                        <th key={header.id} style={thStyle}>{thContent}</th>
+                      ) : (
+                        <SortableColTh key={header.id} colId={colId} style={thStyle}>{thContent}</SortableColTh>
+                      )
+                    })}
+                  </tr>
+                </SortableContext>
               ))}
             </thead>
+          </DndContext>
 
-            {/* ── Body ── */}
+          {/* ── Body ── */}
+          <DndContext
+            sensors={sensors}
+            collisionDetection={closestCenter}
+            modifiers={[restrictToVerticalAxis]}
+            onDragEnd={handleRowDragEnd}
+          >
             <tbody>
               {/* Virtual padding top */}
               {paddingTop > 0 && (
@@ -1406,8 +1432,8 @@ const TasksTable: React.FC<{
                 </tr>
               )}
             </tbody>
-          </table>
-        </DndContext>
+          </DndContext>
+        </table>
       </div>
 
       {/* ── Footer ── */}
@@ -1977,6 +2003,7 @@ const MainApp: React.FC = () => {
   }, [showLoader, hideLoader])
 
   const COLLAPSED_W = 64
+  const MIN_SIDER_W = 200
   const glass = { backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)' }
   const border = isDark ? '#3a3a3a' : 'rgba(0,0,0,0.08)'
   const siderBg = isDark ? 'rgba(10,10,10,0.97)' : 'rgba(252,252,255,0.94)'
@@ -2044,11 +2071,17 @@ const MainApp: React.FC = () => {
       <Splitter
         style={{ height: '100vh' }}
         onResize={(sizes: number[]) => {
-          if (!collapsed && sizes[0] > COLLAPSED_W) setSiderWidth(sizes[0])
+          if (collapsed) return
+          const w = sizes[0]
+          if (w < MIN_SIDER_W) {
+            setCollapsed(true)
+          } else {
+            setSiderWidth(w)
+          }
         }}
       >
         {/* ── SIDEBAR PANEL ── */}
-        <Splitter.Panel size={collapsed ? COLLAPSED_W : siderWidth} min={COLLAPSED_W} max={380}>
+        <Splitter.Panel size={collapsed ? COLLAPSED_W : siderWidth} min={collapsed ? COLLAPSED_W : MIN_SIDER_W} max={380}>
           <div style={{
             height: '100%',
             display: 'flex',
