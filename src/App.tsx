@@ -101,11 +101,11 @@ const { Text } = Typography
 
 // ─── TYPES ────────────────────────────────────────────────────────────────────
 
-type TaskStatus = 'todo' | 'in_progress' | 'review' | 'done' | 'cancelled'
-type TaskPriority = 'low' | 'medium' | 'high' | 'urgent'
-type FieldType = 'text' | 'number' | 'date' | 'select' | 'checkbox'
+export type TaskStatus = 'todo' | 'in_progress' | 'review' | 'done' | 'cancelled'
+export type TaskPriority = 'low' | 'medium' | 'high' | 'urgent'
+export type FieldType = 'text' | 'number' | 'date' | 'select' | 'checkbox'
 
-interface CustomField {
+export interface CustomField {
   id: string
   name: string
   type: FieldType
@@ -114,7 +114,7 @@ interface CustomField {
   projectIds: string[]
 }
 
-interface Project {
+export interface Project {
   id: string
   name: string
   color: string
@@ -122,7 +122,7 @@ interface Project {
   createdAt: string
 }
 
-interface Task {
+export interface Task {
   id: string
   title: string
   description: string
@@ -138,7 +138,7 @@ interface Task {
 
 // ─── CONSTANTS ────────────────────────────────────────────────────────────────
 
-const STATUS_CONFIG: Record<TaskStatus, { label: string; color: string }> = {
+export const STATUS_CONFIG: Record<TaskStatus, { label: string; color: string }> = {
   todo: { label: 'A fazer', color: 'default' },
   in_progress: { label: 'Em progresso', color: 'processing' },
   review: { label: 'Em revisão', color: 'warning' },
@@ -146,17 +146,25 @@ const STATUS_CONFIG: Record<TaskStatus, { label: string; color: string }> = {
   cancelled: { label: 'Cancelado', color: 'error' },
 }
 
-const PRIORITY_CONFIG: Record<TaskPriority, { label: string; color: string }> = {
+export const PRIORITY_CONFIG: Record<TaskPriority, { label: string; color: string }> = {
   low: { label: 'Baixa', color: 'cyan' },
   medium: { label: 'Média', color: 'blue' },
   high: { label: 'Alta', color: 'orange' },
   urgent: { label: 'Urgente', color: 'red' },
 }
 
-const PROJECT_COLORS = [
+export const PROJECT_COLORS = [
   '#6366f1', '#10b981', '#f59e0b', '#ef4444',
   '#3b82f6', '#8b5cf6', '#ec4899', '#14b8a6',
 ]
+
+export const getContrastColor = (hex: string): string => {
+  const h = hex.replace('#', '')
+  const r = parseInt(h.slice(0, 2), 16)
+  const g = parseInt(h.slice(2, 4), 16)
+  const b = parseInt(h.slice(4, 6), 16)
+  return (0.299 * r + 0.587 * g + 0.114 * b) / 255 > 0.55 ? '#1a1a1a' : '#ffffff'
+}
 
 // ─── MOCK DATA ────────────────────────────────────────────────────────────────
 
@@ -175,21 +183,21 @@ const MOCK_PROJECTS: Project[] = [
 ]
 
 const MOCK_TASKS: Task[] = [
-  { id: 't1', title: 'Setup arquitetura', description: 'Estrutura de pastas e CI/CD', status: 'done', priority: 'high', projectId: 'p1', dueDate: '2024-01-20', assignee: 'Alice', customFieldValues: { cf1: 'Sprint 1', cf2: 8, cf4: 'false' }, createdAt: '2024-01-02', updatedAt: '2024-01-18' },
-  { id: 't2', title: 'Design System', description: 'Configurar tokens e estilos', status: 'in_progress', priority: 'high', projectId: 'p1', dueDate: '2024-02-01', assignee: 'Bob', customFieldValues: { cf1: 'Sprint 2', cf2: 13, cf4: 'false' }, createdAt: '2024-01-10', updatedAt: '2024-01-25' },
-  { id: 't3', title: 'UI de Tarefas', description: 'Tabela, drawers e formulários', status: 'in_progress', priority: 'high', projectId: 'p1', dueDate: '2024-02-15', assignee: 'Alice', customFieldValues: { cf1: 'Sprint 2', cf2: 21, cf4: 'false' }, createdAt: '2024-01-12', updatedAt: '2024-01-28' },
-  { id: 't4', title: 'Auth Middleware', description: 'JWT e refresh token', status: 'todo', priority: 'urgent', projectId: 'p2', dueDate: '2024-02-10', assignee: 'Charlie', customFieldValues: { cf1: 'Sprint 1', cf3: 'Dev', cf5: '2024-03-01' }, createdAt: '2024-01-20', updatedAt: '2024-01-20' },
-  { id: 't5', title: 'Rate Limiting', description: 'Sliding window com Redis', status: 'todo', priority: 'medium', projectId: 'p2', dueDate: '2024-02-20', assignee: 'Dave', customFieldValues: { cf1: 'Sprint 2', cf3: 'Staging' }, createdAt: '2024-01-22', updatedAt: '2024-01-22' },
-  { id: 't6', title: 'Documentação API', description: 'OpenAPI 3.0 e Swagger UI', status: 'review', priority: 'low', projectId: 'p2', dueDate: '2024-02-05', assignee: 'Charlie', customFieldValues: { cf3: 'Produção', cf5: '2024-02-28' }, createdAt: '2024-01-18', updatedAt: '2024-01-30' },
-  { id: 't7', title: 'Navegação React Native', description: 'Tab e stack navigation', status: 'todo', priority: 'high', projectId: 'p3', dueDate: '2024-03-01', assignee: 'Eve', customFieldValues: { cf2: 5, cf4: 'true' }, createdAt: '2024-02-01', updatedAt: '2024-02-01' },
-  { id: 't8', title: 'Push Notifications', description: 'Integração FCM', status: 'cancelled', priority: 'medium', projectId: 'p3', dueDate: '2024-03-15', assignee: 'Bob', customFieldValues: { cf2: 3, cf4: 'false' }, createdAt: '2024-02-05', updatedAt: '2024-02-10' },
+  { id: 't1', title: 'Setup arquitetura', description: 'Estrutura de pastas e CI/CD', status: 'done', priority: 'high', projectId: 'p1', dueDate: '2026-05-04', assignee: 'Alice', customFieldValues: { cf1: 'Sprint 1', cf2: 8, cf4: 'false' }, createdAt: '2026-04-28', updatedAt: '2026-05-01' },
+  { id: 't2', title: 'Design System', description: 'Configurar tokens e estilos', status: 'in_progress', priority: 'high', projectId: 'p1', dueDate: '2026-05-08', assignee: 'Bob', customFieldValues: { cf1: 'Sprint 2', cf2: 13, cf4: 'false' }, createdAt: '2026-04-25', updatedAt: '2026-05-02' },
+  { id: 't3', title: 'UI de Tarefas', description: 'Tabela, drawers e formulários', status: 'in_progress', priority: 'high', projectId: 'p1', dueDate: '2026-05-10', assignee: 'Alice', customFieldValues: { cf1: 'Sprint 2', cf2: 21, cf4: 'false' }, createdAt: '2026-04-27', updatedAt: '2026-05-02' },
+  { id: 't4', title: 'Auth Middleware', description: 'JWT e refresh token', status: 'todo', priority: 'urgent', projectId: 'p2', dueDate: '2026-05-03', assignee: 'Charlie', customFieldValues: { cf1: 'Sprint 1', cf3: 'Dev', cf5: '2026-05-14' }, createdAt: '2026-04-29', updatedAt: '2026-04-29' },
+  { id: 't5', title: 'Rate Limiting', description: 'Sliding window com Redis', status: 'todo', priority: 'medium', projectId: 'p2', dueDate: '2026-05-14', assignee: 'Dave', customFieldValues: { cf1: 'Sprint 2', cf3: 'Staging' }, createdAt: '2026-04-30', updatedAt: '2026-04-30' },
+  { id: 't6', title: 'Documentação API', description: 'OpenAPI 3.0 e Swagger UI', status: 'review', priority: 'low', projectId: 'p2', dueDate: '2026-05-06', assignee: 'Charlie', customFieldValues: { cf3: 'Produção', cf5: '2026-05-09' }, createdAt: '2026-04-26', updatedAt: '2026-05-01' },
+  { id: 't7', title: 'Navegação React Native', description: 'Tab e stack navigation', status: 'todo', priority: 'high', projectId: 'p3', dueDate: '2026-05-12', assignee: 'Eve', customFieldValues: { cf2: 5, cf4: 'true' }, createdAt: '2026-05-01', updatedAt: '2026-05-01' },
+  { id: 't8', title: 'Push Notifications', description: 'Integração FCM', status: 'cancelled', priority: 'medium', projectId: 'p3', dueDate: '2026-05-16', assignee: 'Bob', customFieldValues: { cf2: 3, cf4: 'false' }, createdAt: '2026-05-02', updatedAt: '2026-05-02' },
 ]
 
 // ─── THEME CONTEXT ────────────────────────────────────────────────────────────
 
 interface ThemeCtx { isDark: boolean; toggle: () => void }
 const ThemeContext = createContext<ThemeCtx>({ isDark: false, toggle: () => { } })
-const useTheme = () => useContext(ThemeContext)
+export const useTheme = () => useContext(ThemeContext)
 
 // ─── LOADER CONTEXT ───────────────────────────────────────────────────────────
 
@@ -378,7 +386,7 @@ const AppDataProvider: React.FC<{ children: React.ReactNode }> = ({ children }) 
 
 // ─── LOGO ─────────────────────────────────────────────────────────────────────
 
-const AppLogo: React.FC<{ collapsed: boolean }> = ({ collapsed }) => {
+export const AppLogo: React.FC<{ collapsed: boolean }> = ({ collapsed }) => {
   const { isDark } = useTheme()
   return (
     <div style={{
@@ -422,7 +430,7 @@ interface TaskFormValues {
   customFieldValues?: Record<string, unknown>
 }
 
-const TaskDrawer: React.FC<{
+export const TaskDrawer: React.FC<{
   open: boolean
   onClose: () => void
   editingTask: Task | null
@@ -492,7 +500,7 @@ const TaskDrawer: React.FC<{
           <Input.TextArea rows={3} placeholder="Descrição..." />
         </Form.Item>
         <Row gutter={16}>
-          <Col span={12}>
+          <Col xs={24} sm={12}>
             <Form.Item name="status" label="Status" rules={[{ required: true }]}>
               <Select>
                 {Object.entries(STATUS_CONFIG).map(([k, v]) => (
@@ -501,7 +509,7 @@ const TaskDrawer: React.FC<{
               </Select>
             </Form.Item>
           </Col>
-          <Col span={12}>
+          <Col xs={24} sm={12}>
             <Form.Item name="priority" label="Prioridade" rules={[{ required: true }]}>
               <Select>
                 {Object.entries(PRIORITY_CONFIG).map(([k, v]) => (
@@ -512,7 +520,7 @@ const TaskDrawer: React.FC<{
           </Col>
         </Row>
         <Row gutter={16}>
-          <Col span={12}>
+          <Col xs={24} sm={12}>
             <Form.Item name="projectId" label="Projeto" rules={[{ required: true }]}>
               <Select onChange={(v: string) => setSelPid(v)}>
                 {projects.map(p => (
@@ -526,7 +534,7 @@ const TaskDrawer: React.FC<{
               </Select>
             </Form.Item>
           </Col>
-          <Col span={12}>
+          <Col xs={24} sm={12}>
             <Form.Item name="dueDate" label="Prazo">
               <DatePicker style={{ width: '100%' }} format="DD/MM/YYYY" />
             </Form.Item>
@@ -580,7 +588,7 @@ const TaskDrawer: React.FC<{
 
 // ─── PROJECT DRAWER ───────────────────────────────────────────────────────────
 
-const ProjectDrawer: React.FC<{
+export const ProjectDrawer: React.FC<{
   open: boolean
   onClose: () => void
   editingProject: Project | null
@@ -1536,7 +1544,7 @@ interface TaskEditCtx {
   openEditTask: (task: Task | null, defaultProjectId?: string) => void
 }
 const TaskEditContext = createContext<TaskEditCtx>({ openEditTask: () => { } })
-const useTaskEdit = () => useContext(TaskEditContext)
+export const useTaskEdit = () => useContext(TaskEditContext)
 
 const TaskEditProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [taskOpen, setTaskOpen] = useState(false)
@@ -1564,7 +1572,7 @@ const TaskEditProvider: React.FC<{ children: React.ReactNode }> = ({ children })
 
 // ─── CALENDAR VIEW ────────────────────────────────────────────────────────────
 
-const CalendarView: React.FC = () => {
+export const CalendarView: React.FC = () => {
   const { tasks } = useAppData()
   const { openEditTask } = useTaskEdit()
   const { isDark } = useTheme()
@@ -1636,8 +1644,8 @@ const CalendarView: React.FC = () => {
 
 interface ApiToken { id: string; name: string; prefix: string; createdAt: string }
 
-const UserSettingsView: React.FC = () => {
-  const { isDark } = useTheme()
+export const UserSettingsView: React.FC = () => {
+  const { isDark, toggle } = useTheme()
   const cardBg = isDark ? '#1e1e1e' : '#fff'
   const border = isDark ? '#3a3a3a' : '#f0f0f0'
 
@@ -1681,6 +1689,29 @@ const UserSettingsView: React.FC = () => {
 
   return (
     <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 24 }}>
+      {/* Preferências */}
+      <div style={{ background: cardBg, border: `1px solid ${border}` }}>
+        <div style={{ padding: '10px 16px', borderBottom: `1px solid ${border}`, display: 'flex', alignItems: 'center', flexShrink: 0 }}>
+          <Text strong style={{ fontSize: 13 }}>Preferências</Text>
+        </div>
+        <div style={{ padding: 16 }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <Space direction="vertical" size={0}>
+              <Text style={{ fontSize: 13 }}>Tema</Text>
+              <Text type="secondary" style={{ fontSize: 12 }}>{isDark ? 'Modo escuro ativado' : 'Modo claro ativado'}</Text>
+            </Space>
+            <Button
+              type={isDark ? 'default' : 'primary'}
+              size="small"
+              icon={isDark ? <SunOutlined /> : <MoonOutlined />}
+              onClick={toggle}
+            >
+              {isDark ? 'Modo claro' : 'Modo escuro'}
+            </Button>
+          </div>
+        </div>
+      </div>
+
       {/* Profile */}
       <div style={{ background: cardBg, border: `1px solid ${border}` }}>
         <div style={{ padding: '10px 16px', borderBottom: `1px solid ${border}`, display: 'flex', alignItems: 'center', flexShrink: 0 }}>
@@ -1691,12 +1722,12 @@ const UserSettingsView: React.FC = () => {
             <Avatar size={72} icon={<UserOutlined />} style={{ background: '#6366f1', flexShrink: 0 }} />
             <Form layout="vertical" style={{ flex: 1 }}>
               <Row gutter={16}>
-                <Col span={12}>
+                <Col xs={24} sm={12}>
                   <Form.Item label="Nome completo">
                     <Input defaultValue="Lucas Dev" />
                   </Form.Item>
                 </Col>
-                <Col span={12}>
+                <Col xs={24} sm={12}>
                   <Form.Item label="E-mail">
                     <Input defaultValue="lucas@example.com" />
                   </Form.Item>
@@ -1780,7 +1811,7 @@ const UserSettingsView: React.FC = () => {
         <div style={{ padding: 16 }}>
           <Form layout="vertical">
             <Row gutter={16}>
-              <Col span={12}>
+              <Col xs={24} sm={12}>
                 <Form.Item label="Provedor">
                   <Select defaultValue="openai">
                     <Select.Option value="openai">OpenAI</Select.Option>
@@ -1789,7 +1820,7 @@ const UserSettingsView: React.FC = () => {
                   </Select>
                 </Form.Item>
               </Col>
-              <Col span={12}>
+              <Col xs={24} sm={12}>
                 <Form.Item label="Modelo">
                   <Select defaultValue="gpt-4o">
                     <Select.Option value="gpt-4o">GPT-4o</Select.Option>
@@ -1830,7 +1861,7 @@ const UserSettingsView: React.FC = () => {
 
 // ─── CUSTOM FIELDS SETTINGS VIEW ──────────────────────────────────────────────
 
-const CustomFieldsSettingsView: React.FC = () => {
+export const CustomFieldsSettingsView: React.FC = () => {
   const { isDark } = useTheme()
   const { customFields, projects, addCustomField, updateCustomField, deleteCustomField } = useAppData()
   const cardBg = isDark ? '#1e1e1e' : '#fff'
@@ -1910,7 +1941,7 @@ const CustomFieldsSettingsView: React.FC = () => {
           <Space size={4} wrap>
             {f.projectIds.map(pid => {
               const p = projects.find(pr => pr.id === pid)
-              return p ? <Tag key={pid} color={p.color} style={{ color: '#fff', border: 'none' }}>{p.name}</Tag> : null
+              return p ? <Tag key={pid} style={{ backgroundColor: p.color, color: getContrastColor(p.color), border: 'none' }}>{p.name}</Tag> : null
             })}
           </Space>
         )
@@ -2004,7 +2035,7 @@ const CustomFieldsSettingsView: React.FC = () => {
 // ─── MAIN APP ─────────────────────────────────────────────────────────────────
 
 const MainApp: React.FC = () => {
-  const { isDark, toggle } = useTheme()
+  const { isDark } = useTheme()
   const { projects, tasks } = useAppData()
   const { showLoader, hideLoader } = useLoader()
   const { openEditTask } = useTaskEdit()
@@ -2241,15 +2272,6 @@ const MainApp: React.FC = () => {
                 }}
               />
               <Space size={4} style={{ flexShrink: 0 }}>
-                <Tooltip title={isDark ? 'Modo claro' : 'Modo escuro'}>
-                  <Button
-                    type="text"
-                    size="small"
-                    icon={isDark ? <SunOutlined style={{ fontSize: 15 }} /> : <MoonOutlined style={{ fontSize: 15 }} />}
-                    onClick={toggle}
-                    style={{ color: isDark ? '#facc15' : '#6366f1' }}
-                  />
-                </Tooltip>
                 <Tooltip title="Minha conta">
                   <Avatar
                     size={28}
@@ -2384,16 +2406,33 @@ const ThemeWrapper: React.FC<{ children: React.ReactNode }> = ({ children }) => 
   )
 }
 
+// ─── MOBILE DETECTION ─────────────────────────────────────────────────────────
+
+const useMobileDetect = () => {
+  const [isMobile, setIsMobile] = useState(() => window.innerWidth <= 768)
+  useEffect(() => {
+    const mq = window.matchMedia('(max-width: 768px)')
+    const handler = (e: MediaQueryListEvent) => setIsMobile(e.matches)
+    setIsMobile(mq.matches)
+    mq.addEventListener('change', handler)
+    return () => mq.removeEventListener('change', handler)
+  }, [])
+  return isMobile
+}
+
 // ─── ROOT ─────────────────────────────────────────────────────────────────────
 
+import MobileApp from './MobileApp'
+
 export default function App() {
+  const isMobile = useMobileDetect()
   return (
     <ThemeWrapper>
       <AntApp>
         <LoaderProvider>
           <AppDataProvider>
             <TaskEditProvider>
-              <MainApp />
+              {isMobile ? <MobileApp /> : <MainApp />}
             </TaskEditProvider>
           </AppDataProvider>
         </LoaderProvider>
