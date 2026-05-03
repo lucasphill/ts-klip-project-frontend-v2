@@ -1,0 +1,4 @@
+interface:
+  display_name: "Klip Legacy Mapper"
+  short_description: "Mapeia funcionalidades antigas do Klip"
+  default_prompt: "Use $klip-legacy-mapper to map legacy Klip frontend functionality before migration."

@@ -1,0 +1,4 @@
+interface:
+  display_name: "LLM Parallel Console"
+  short_description: "Consulta Codex e Copilot via console"
+  default_prompt: "Use $llm-parallel-console to run read-only LLM consultations from PowerShell."

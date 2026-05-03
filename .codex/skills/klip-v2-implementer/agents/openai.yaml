@@ -1,0 +1,4 @@
+interface:
+  display_name: "Klip V2 Implementer"
+  short_description: "Implementa funcionalidades reais no Klip v2"
+  default_prompt: "Use $klip-v2-implementer to implement API-backed Klip features in the v2 shell."
