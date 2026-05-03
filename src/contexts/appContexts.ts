@@ -59,7 +59,7 @@ export const AppDataContext = createContext<AppDataCtx>({
 export const useAppData = () => useContext(AppDataContext)
 
 interface TaskEditCtx {
-  openEditTask: (task: Task | null, defaultProjectId?: string) => void
+  openEditTask: (task: Task | null, defaultProjectId?: string, defaultParentTaskId?: string) => void
 }
 
 export const TaskEditContext = createContext<TaskEditCtx>({ openEditTask: () => { } })

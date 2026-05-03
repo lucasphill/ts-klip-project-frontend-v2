@@ -13,6 +13,7 @@ createRoot(document.getElementById('root')!).render(
       authorizationParams={getAuth0AuthorizationParams()}
       cacheLocation="localstorage"
       useRefreshTokens
+      useRefreshTokensFallback
     >
       <App />
     </Auth0Provider>

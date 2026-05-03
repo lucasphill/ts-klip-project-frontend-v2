@@ -14,8 +14,15 @@ import type {
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'https://api.klip.app.br/api'
 
-type AccessTokenProvider = () => Promise<string | undefined>
+type AccessTokenOptions = {
+  forceRefresh?: boolean
+}
+
+type AccessTokenProvider = (options?: AccessTokenOptions) => Promise<string | undefined>
 type AuthErrorHandler = () => void
+type RetriableRequestConfig = NonNullable<AxiosError['config']> & {
+  _authRetry?: boolean
+}
 
 let accessTokenProvider: AccessTokenProvider | null = null
 let authErrorHandler: AuthErrorHandler | null = null
@@ -58,10 +65,30 @@ api.interceptors.response.use(
 
     return response
   },
-  (error: AxiosError) => {
+  async (error: AxiosError) => {
     if (error.response?.status === 401) {
+      const originalRequest = error.config as RetriableRequestConfig | undefined
+
+      if (accessTokenProvider && originalRequest && !originalRequest._authRetry) {
+        originalRequest._authRetry = true
+
+        try {
+          const token = await accessTokenProvider({ forceRefresh: true })
+
+          if (token) {
+            originalRequest.headers = originalRequest.headers || {}
+            originalRequest.headers.Authorization = `Bearer ${token}`
+            return api.request(originalRequest)
+          }
+        } catch {
+          authErrorHandler?.()
+          return Promise.reject(error)
+        }
+      }
+
       authErrorHandler?.()
     }
+
     return Promise.reject(error)
   },
 )
