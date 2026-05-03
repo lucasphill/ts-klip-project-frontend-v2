@@ -36,9 +36,7 @@ import {
   Empty,
   Calendar,
   Badge,
-  Modal,
   Card,
-  Alert,
 } from 'antd'
 import type { MenuProps, BadgeProps, CalendarProps } from 'antd'
 import {
@@ -58,10 +56,10 @@ import {
   DatabaseOutlined,
   RobotOutlined,
   LinkOutlined,
-  CopyOutlined,
   GithubOutlined,
   GlobalOutlined,
   FilterOutlined,
+  LogoutOutlined,
 } from '@ant-design/icons'
 import {
   useReactTable,
@@ -95,115 +93,35 @@ import {
 } from '@dnd-kit/sortable'
 import { restrictToVerticalAxis, restrictToHorizontalAxis } from '@dnd-kit/modifiers'
 import { CSS } from '@dnd-kit/utilities'
+import { AuthProvider } from './contexts/AuthContext'
+import { useAuth } from './contexts/authState'
+import {
+  AppDataContext,
+  LoaderContext,
+  TaskEditContext,
+  ThemeContext,
+  useAppData,
+  useLoader,
+  useTaskEdit,
+  useTheme,
+} from './contexts/appContexts'
+import { useKlipData } from './hooks/useKlipData'
+import { useAppRoute } from './hooks/useAppRoute'
+import { taskBelongsToProject } from './lib/klipAdapters'
+import { getRouteMenuKey } from './lib/routes'
+import {
+  API_SUPPORTED_STATUSES,
+  PRIORITY_CONFIG,
+  PROJECT_COLORS,
+  STATUS_CONFIG,
+  getContrastColor,
+} from './constants/ui'
+import type { CustomField, FieldType, Project, Task, TaskPriority, TaskStatus } from './types/domain'
 
 const { Header, Content, Footer } = Layout
 const { Text } = Typography
 
-// ─── TYPES ────────────────────────────────────────────────────────────────────
-
-export type TaskStatus = 'todo' | 'in_progress' | 'review' | 'done' | 'cancelled'
-export type TaskPriority = 'low' | 'medium' | 'high' | 'urgent'
-export type FieldType = 'text' | 'number' | 'date' | 'select' | 'checkbox'
-
-export interface CustomField {
-  id: string
-  name: string
-  type: FieldType
-  options?: string[]
-  scope: 'universal' | 'project'
-  projectIds: string[]
-}
-
-export interface Project {
-  id: string
-  name: string
-  color: string
-  description: string
-  createdAt: string
-}
-
-export interface Task {
-  id: string
-  title: string
-  description: string
-  status: TaskStatus
-  priority: TaskPriority
-  projectId: string
-  dueDate?: string
-  assignee?: string
-  customFieldValues: Record<string, unknown>
-  createdAt: string
-  updatedAt: string
-}
-
-// ─── CONSTANTS ────────────────────────────────────────────────────────────────
-
-export const STATUS_CONFIG: Record<TaskStatus, { label: string; color: string }> = {
-  todo: { label: 'A fazer', color: 'default' },
-  in_progress: { label: 'Em progresso', color: 'processing' },
-  review: { label: 'Em revisão', color: 'warning' },
-  done: { label: 'Concluído', color: 'success' },
-  cancelled: { label: 'Cancelado', color: 'error' },
-}
-
-export const PRIORITY_CONFIG: Record<TaskPriority, { label: string; color: string }> = {
-  low: { label: 'Baixa', color: 'cyan' },
-  medium: { label: 'Média', color: 'blue' },
-  high: { label: 'Alta', color: 'orange' },
-  urgent: { label: 'Urgente', color: 'red' },
-}
-
-export const PROJECT_COLORS = [
-  '#6366f1', '#10b981', '#f59e0b', '#ef4444',
-  '#3b82f6', '#8b5cf6', '#ec4899', '#14b8a6',
-]
-
-export const getContrastColor = (hex: string): string => {
-  const h = hex.replace('#', '')
-  const r = parseInt(h.slice(0, 2), 16)
-  const g = parseInt(h.slice(2, 4), 16)
-  const b = parseInt(h.slice(4, 6), 16)
-  return (0.299 * r + 0.587 * g + 0.114 * b) / 255 > 0.55 ? '#1a1a1a' : '#ffffff'
-}
-
-// ─── MOCK DATA ────────────────────────────────────────────────────────────────
-
-const MOCK_FIELDS: CustomField[] = [
-  { id: 'cf1', name: 'Sprint', type: 'select', options: ['Sprint 1', 'Sprint 2', 'Sprint 3', 'Sprint 4'], scope: 'project', projectIds: ['p1', 'p2'] },
-  { id: 'cf2', name: 'Story Points', type: 'number', scope: 'project', projectIds: ['p1', 'p3'] },
-  { id: 'cf3', name: 'Ambiente', type: 'select', options: ['Dev', 'Staging', 'Produção'], scope: 'project', projectIds: ['p2'] },
-  { id: 'cf4', name: 'Bloqueado', type: 'checkbox', scope: 'universal', projectIds: [] },
-  { id: 'cf5', name: 'Dt. Entrega', type: 'date', scope: 'project', projectIds: ['p2'] },
-]
-
-const MOCK_PROJECTS: Project[] = [
-  { id: 'p1', name: 'Frontend v2', color: '#6366f1', description: 'Redesign do frontend', createdAt: '2024-01-01' },
-  { id: 'p2', name: 'API Gateway', color: '#10b981', description: 'Gateway com autenticação e rate limiting', createdAt: '2024-01-15' },
-  { id: 'p3', name: 'Mobile App', color: '#f59e0b', description: 'Aplicativo mobile multiplataforma', createdAt: '2024-02-01' },
-]
-
-const MOCK_TASKS: Task[] = [
-  { id: 't1', title: 'Setup arquitetura', description: 'Estrutura de pastas e CI/CD', status: 'done', priority: 'high', projectId: 'p1', dueDate: '2026-05-04', assignee: 'Alice', customFieldValues: { cf1: 'Sprint 1', cf2: 8, cf4: 'false' }, createdAt: '2026-04-28', updatedAt: '2026-05-01' },
-  { id: 't2', title: 'Design System', description: 'Configurar tokens e estilos', status: 'in_progress', priority: 'high', projectId: 'p1', dueDate: '2026-05-08', assignee: 'Bob', customFieldValues: { cf1: 'Sprint 2', cf2: 13, cf4: 'false' }, createdAt: '2026-04-25', updatedAt: '2026-05-02' },
-  { id: 't3', title: 'UI de Tarefas', description: 'Tabela, drawers e formulários', status: 'in_progress', priority: 'high', projectId: 'p1', dueDate: '2026-05-10', assignee: 'Alice', customFieldValues: { cf1: 'Sprint 2', cf2: 21, cf4: 'false' }, createdAt: '2026-04-27', updatedAt: '2026-05-02' },
-  { id: 't4', title: 'Auth Middleware', description: 'JWT e refresh token', status: 'todo', priority: 'urgent', projectId: 'p2', dueDate: '2026-05-03', assignee: 'Charlie', customFieldValues: { cf1: 'Sprint 1', cf3: 'Dev', cf5: '2026-05-14' }, createdAt: '2026-04-29', updatedAt: '2026-04-29' },
-  { id: 't5', title: 'Rate Limiting', description: 'Sliding window com Redis', status: 'todo', priority: 'medium', projectId: 'p2', dueDate: '2026-05-14', assignee: 'Dave', customFieldValues: { cf1: 'Sprint 2', cf3: 'Staging' }, createdAt: '2026-04-30', updatedAt: '2026-04-30' },
-  { id: 't6', title: 'Documentação API', description: 'OpenAPI 3.0 e Swagger UI', status: 'review', priority: 'low', projectId: 'p2', dueDate: '2026-05-06', assignee: 'Charlie', customFieldValues: { cf3: 'Produção', cf5: '2026-05-09' }, createdAt: '2026-04-26', updatedAt: '2026-05-01' },
-  { id: 't7', title: 'Navegação React Native', description: 'Tab e stack navigation', status: 'todo', priority: 'high', projectId: 'p3', dueDate: '2026-05-12', assignee: 'Eve', customFieldValues: { cf2: 5, cf4: 'true' }, createdAt: '2026-05-01', updatedAt: '2026-05-01' },
-  { id: 't8', title: 'Push Notifications', description: 'Integração FCM', status: 'cancelled', priority: 'medium', projectId: 'p3', dueDate: '2026-05-16', assignee: 'Bob', customFieldValues: { cf2: 3, cf4: 'false' }, createdAt: '2026-05-02', updatedAt: '2026-05-02' },
-]
-
-// ─── THEME CONTEXT ────────────────────────────────────────────────────────────
-
-interface ThemeCtx { isDark: boolean; toggle: () => void }
-const ThemeContext = createContext<ThemeCtx>({ isDark: false, toggle: () => { } })
-export const useTheme = () => useContext(ThemeContext)
-
-// ─── LOADER CONTEXT ───────────────────────────────────────────────────────────
-
-interface LoaderCtx { loading: boolean; showLoader: () => void; hideLoader: () => void }
-const LoaderContext = createContext<LoaderCtx>({ loading: false, showLoader: () => { }, hideLoader: () => { } })
-export const useLoader = () => useContext(LoaderContext)
+export type { CustomField, FieldType, Project, Task, TaskPriority, TaskStatus }
 
 const LoaderProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [loading, setLoading] = useState(false)
@@ -261,124 +179,14 @@ const LoaderProvider: React.FC<{ children: React.ReactNode }> = ({ children }) =
   )
 }
 
-// ─── APP DATA CONTEXT ─────────────────────────────────────────────────────────
-
-interface AppDataCtx {
-  tasks: Task[]
-  projects: Project[]
-  customFields: CustomField[]
-  addTask: (t: Omit<Task, 'id' | 'createdAt' | 'updatedAt'>) => void
-  updateTask: (id: string, u: Partial<Task>) => void
-  deleteTask: (id: string) => void
-  addProject: (p: Omit<Project, 'id' | 'createdAt'>) => Project
-  updateProject: (id: string, u: Partial<Project>) => void
-  deleteProject: (id: string) => void
-  addCustomField: (f: Omit<CustomField, 'id'>) => void
-  updateCustomField: (id: string, u: Partial<Omit<CustomField, 'id'>>) => void
-  deleteCustomField: (id: string) => void
-  setProjectFields: (projectId: string, fieldIds: string[]) => void
-}
-
-const AppDataContext = createContext<AppDataCtx>({
-  tasks: [], projects: [], customFields: [],
-  addTask: () => { }, updateTask: () => { }, deleteTask: () => { },
-  addProject: () => ({} as Project), updateProject: () => { }, deleteProject: () => { },
-  addCustomField: () => { }, updateCustomField: () => { }, deleteCustomField: () => { },
-  setProjectFields: () => { },
-})
-export const useAppData = () => useContext(AppDataContext)
-
 const AppDataProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { notification } = AntApp.useApp()
-  const [tasks, setTasks] = useState<Task[]>(MOCK_TASKS)
-  const [projects, setProjects] = useState<Project[]>(MOCK_PROJECTS)
-  const [customFields, setCustomFields] = useState<CustomField[]>(MOCK_FIELDS)
-
-  const addTask = useCallback((data: Omit<Task, 'id' | 'createdAt' | 'updatedAt'>) => {
-    const now = new Date().toISOString()
-    const task: Task = { ...data, id: `t${Date.now()}`, createdAt: now, updatedAt: now }
-    setTasks(prev => [task, ...prev])
-    notification.success({ message: 'Tarefa criada', description: `"${task.title}" adicionada.`, placement: 'topRight' })
-  }, [notification])
-
-  const updateTask = useCallback((id: string, updates: Partial<Task>) => {
-    setTasks(prev => prev.map(t => t.id === id ? { ...t, ...updates, updatedAt: new Date().toISOString() } : t))
-    if (updates.status) {
-      notification.info({ message: 'Status atualizado', description: `Status alterado para "${STATUS_CONFIG[updates.status].label}".`, placement: 'topRight' })
-    } else {
-      notification.success({ message: 'Tarefa atualizada', description: 'Alterações salvas com sucesso.', placement: 'topRight' })
-    }
-  }, [notification])
-
-  const deleteTask = useCallback((id: string) => {
-    setTasks(prev => {
-      const task = prev.find(t => t.id === id)
-      notification.warning({ message: 'Tarefa removida', description: `"${task?.title}" foi removida.`, placement: 'topRight' })
-      return prev.filter(t => t.id !== id)
-    })
-  }, [notification])
-
-  const addProject = useCallback((data: Omit<Project, 'id' | 'createdAt'>) => {
-    const proj: Project = { ...data, id: `p${Date.now()}`, createdAt: new Date().toISOString() }
-    setProjects(prev => [proj, ...prev])
-    notification.success({ message: 'Projeto criado', description: `"${proj.name}" adicionado.`, placement: 'topRight' })
-    return proj
-  }, [notification])
-
-  const updateProject = useCallback((id: string, updates: Partial<Project>) => {
-    setProjects(prev => prev.map(p => p.id === id ? { ...p, ...updates } : p))
-    notification.success({ message: 'Projeto atualizado', description: 'Alterações salvas.', placement: 'topRight' })
-  }, [notification])
-
-  const deleteProject = useCallback((id: string) => {
-    setProjects(prev => {
-      const proj = prev.find(p => p.id === id)
-      notification.warning({ message: 'Projeto removido', description: `"${proj?.name}" removido.`, placement: 'topRight' })
-      return prev.filter(p => p.id !== id)
-    })
-  }, [notification])
-
-  const addCustomField = useCallback((data: Omit<CustomField, 'id'>) => {
-    const field: CustomField = { ...data, id: `cf${Date.now()}` }
-    setCustomFields(prev => [...prev, field])
-    notification.success({ message: 'Campo criado', description: `"${field.name}" adicionado.`, placement: 'topRight' })
-  }, [notification])
-
-  const updateCustomField = useCallback((id: string, updates: Partial<Omit<CustomField, 'id'>>) => {
-    setCustomFields(prev => prev.map(f => f.id === id ? { ...f, ...updates } : f))
-    notification.success({ message: 'Campo atualizado', description: 'Alterações salvas.', placement: 'topRight' })
-  }, [notification])
-
-  const deleteCustomField = useCallback((id: string) => {
-    setCustomFields(prev => {
-      const field = prev.find(f => f.id === id)
-      notification.warning({ message: 'Campo removido', description: `"${field?.name}" foi removido.`, placement: 'topRight' })
-      return prev.filter(f => f.id !== id)
-    })
-  }, [notification])
-
-  const setProjectFields = useCallback((projectId: string, fieldIds: string[]) => {
-    setCustomFields(prev => prev.map(f => {
-      if (f.scope !== 'project') return f
-      const hasProject = f.projectIds.includes(projectId)
-      const shouldHave = fieldIds.includes(f.id)
-      if (hasProject === shouldHave) return f
-      return {
-        ...f,
-        projectIds: shouldHave
-          ? [...f.projectIds, projectId]
-          : f.projectIds.filter(id => id !== projectId),
-      }
-    }))
-  }, [])
+  const { isAuthenticated } = useAuth()
+  const { showLoader, hideLoader } = useLoader()
+  const data = useKlipData({ notification, isAuthenticated, showLoader, hideLoader })
 
   return (
-    <AppDataContext.Provider value={{
-      tasks, projects, customFields,
-      addTask, updateTask, deleteTask,
-      addProject, updateProject, deleteProject,
-      addCustomField, updateCustomField, deleteCustomField, setProjectFields,
-    }}>
+    <AppDataContext.Provider value={data}>
       {children}
     </AppDataContext.Provider>
   )
@@ -424,7 +232,8 @@ interface TaskFormValues {
   description?: string
   status: TaskStatus
   priority: TaskPriority
-  projectId: string
+  projectId?: string
+  parentTaskId?: string
   dueDate?: dayjs.Dayjs
   assignee?: string
   customFieldValues?: Record<string, unknown>
@@ -436,46 +245,67 @@ export const TaskDrawer: React.FC<{
   editingTask: Task | null
   defaultProjectId?: string
 }> = ({ open, onClose, editingTask, defaultProjectId }) => {
-  const { projects, customFields, addTask, updateTask } = useAppData()
+  const { tasks, projects, customFields, addTask, updateTask } = useAppData()
   const [form] = Form.useForm<TaskFormValues>()
-  const [selPid, setSelPid] = useState(defaultProjectId ?? projects[0]?.id ?? '')
-  const projFields = customFields.filter(f => f.scope === 'universal' || f.projectIds.includes(selPid))
+  const watchedProjectId = Form.useWatch('projectId', form) as string | undefined
+  const selectedProjectId = watchedProjectId ?? defaultProjectId ?? ''
+  const projFields = customFields.filter(f => f.scope === 'universal' || f.projectIds.includes(selectedProjectId))
 
   useEffect(() => {
     if (!open) return
     if (editingTask) {
+      const customFieldValues = Object.fromEntries(
+        Object.entries(editingTask.customFieldValues).map(([fieldId, value]) => {
+          const field = customFields.find(item => item.id === fieldId)
+          if (field?.type === 'date' && typeof value === 'string') return [fieldId, dayjs(value)]
+          return [fieldId, value]
+        }),
+      )
+
       form.setFieldsValue({
         ...editingTask,
+        customFieldValues,
         dueDate: editingTask.dueDate ? dayjs(editingTask.dueDate) : undefined,
       })
-      setSelPid(editingTask.projectId)
     } else {
       form.resetFields()
-      const pid = defaultProjectId ?? projects[0]?.id ?? ''
-      form.setFieldsValue({ status: 'todo', priority: 'medium', projectId: pid })
-      setSelPid(pid)
+      const pid = defaultProjectId ?? undefined
+      form.setFieldsValue({ status: 'todo', priority: 'medium', projectId: pid, parentTaskId: undefined })
     }
-  }, [open, editingTask, defaultProjectId, projects, form])
+  }, [open, editingTask, defaultProjectId, customFields, form])
 
-  const handleSubmit = () =>
-    form.validateFields().then((values: TaskFormValues) => {
-      const processed: Omit<Task, 'id' | 'createdAt' | 'updatedAt'> = {
-        title: values.title,
-        description: values.description ?? '',
-        status: values.status,
-        priority: values.priority,
-        projectId: values.projectId,
-        assignee: values.assignee,
-        dueDate: values.dueDate ? values.dueDate.format('YYYY-MM-DD') : undefined,
-        customFieldValues: values.customFieldValues ?? {},
-      }
-      if (editingTask) {
-        updateTask(editingTask.id, processed)
-      } else {
-        addTask(processed)
-      }
-      onClose()
-    })
+  const handleSubmit = async () => {
+    const values = await form.validateFields()
+    const projectIds = values.projectId ? [values.projectId] : []
+    const activeFieldIds = new Set(projFields.map(field => field.id))
+    const customFieldValues = Object.fromEntries(
+      Object.entries(values.customFieldValues ?? {}).filter(([fieldId]) => activeFieldIds.has(fieldId)).map(([fieldId, value]) => {
+        const field = customFields.find(item => item.id === fieldId)
+        if (field?.type === 'date' && dayjs.isDayjs(value)) {
+          return [fieldId, value.format('YYYY-MM-DD')]
+        }
+        return [fieldId, value]
+      }),
+    )
+    const processed: Omit<Task, 'id' | 'createdAt' | 'updatedAt'> = {
+      title: values.title,
+      description: values.description ?? '',
+      status: values.status,
+      priority: 'medium',
+      projectId: values.projectId ?? '',
+      projectIds,
+      parentTaskId: values.parentTaskId || undefined,
+      assignee: undefined,
+      dueDate: values.dueDate ? values.dueDate.format('YYYY-MM-DD') : undefined,
+      customFieldValues,
+    }
+    if (editingTask) {
+      await updateTask(editingTask.id, processed)
+    } else {
+      await addTask(processed)
+    }
+    onClose()
+  }
 
   return (
     <Drawer
@@ -503,15 +333,28 @@ export const TaskDrawer: React.FC<{
           <Col xs={24} sm={12}>
             <Form.Item name="status" label="Status" rules={[{ required: true }]}>
               <Select>
-                {Object.entries(STATUS_CONFIG).map(([k, v]) => (
-                  <Select.Option key={k} value={k}>{v.label}</Select.Option>
-                ))}
+                {Object.entries(STATUS_CONFIG).map(([k, v]) => {
+                  const status = k as TaskStatus
+                  const supported = API_SUPPORTED_STATUSES.has(status)
+                  return (
+                    <Select.Option key={k} value={k} disabled={!supported}>
+                      <Space size={6}>
+                        {v.label}
+                        {!supported && <Tag style={{ margin: 0 }}>Em desenvolvimento</Tag>}
+                      </Space>
+                    </Select.Option>
+                  )
+                })}
               </Select>
             </Form.Item>
           </Col>
           <Col xs={24} sm={12}>
-            <Form.Item name="priority" label="Prioridade" rules={[{ required: true }]}>
-              <Select>
+            <Form.Item
+              name="priority"
+              label={<Space size={6}>Prioridade<Tag style={{ margin: 0 }}>Em desenvolvimento</Tag></Space>}
+              rules={[{ required: true }]}
+            >
+              <Select disabled>
                 {Object.entries(PRIORITY_CONFIG).map(([k, v]) => (
                   <Select.Option key={k} value={k}>{v.label}</Select.Option>
                 ))}
@@ -521,8 +364,8 @@ export const TaskDrawer: React.FC<{
         </Row>
         <Row gutter={16}>
           <Col xs={24} sm={12}>
-            <Form.Item name="projectId" label="Projeto" rules={[{ required: true }]}>
-              <Select onChange={(v: string) => setSelPid(v)}>
+            <Form.Item name="projectId" label="Projeto">
+              <Select allowClear placeholder="Sem projeto vinculado">
                 {projects.map(p => (
                   <Select.Option key={p.id} value={p.id}>
                     <Space>
@@ -540,12 +383,23 @@ export const TaskDrawer: React.FC<{
             </Form.Item>
           </Col>
         </Row>
+        <Form.Item name="parentTaskId" label="Subtarefa de">
+          <Select
+            allowClear
+            showSearch
+            placeholder="Nenhuma tarefa pai"
+            optionFilterProp="label"
+            options={tasks
+              .filter(task => task.id !== editingTask?.id)
+              .map(task => ({ value: task.id, label: task.title }))}
+          />
+        </Form.Item>
         <Form.Item name="assignee" label="Responsável">
-          <Input placeholder="Nome do responsável" />
+          <Input disabled placeholder="Em desenvolvimento" />
         </Form.Item>
         {projFields.length > 0 && (
           <>
-            <Divider orientation="left" style={{ fontSize: 12, marginTop: 8 }}>
+            <Divider titlePlacement="start" style={{ fontSize: 12, marginTop: 8 }}>
               Campos Personalizados
             </Divider>
             {projFields.map(f => (
@@ -611,25 +465,25 @@ export const ProjectDrawer: React.FC<{
     }
   }, [open, editingProject, form, customFields])
 
-  const handleSubmit = () =>
-    form.validateFields().then((values) => {
-      if (editingProject) {
-        updateProject(editingProject.id, {
-          name: values.name,
-          color: values.color,
-          description: values.description,
-        })
-        setProjectFields(editingProject.id, values.cfIds ?? [])
-      } else {
-        const newProj = addProject({
-          name: values.name,
-          color: values.color ?? PROJECT_COLORS[0],
-          description: values.description ?? '',
-        })
-        setProjectFields(newProj.id, values.cfIds ?? [])
-      }
-      onClose()
-    })
+  const handleSubmit = async () => {
+    const values = await form.validateFields()
+    if (editingProject) {
+      await updateProject(editingProject.id, {
+        name: values.name,
+        color: values.color,
+        description: values.description,
+      })
+      await setProjectFields(editingProject.id, values.cfIds ?? [])
+    } else {
+      const newProj = await addProject({
+        name: values.name,
+        color: values.color ?? PROJECT_COLORS[0],
+        description: values.description ?? '',
+      })
+      await setProjectFields(newProj.id, values.cfIds ?? [])
+    }
+    onClose()
+  }
 
   return (
     <Drawer
@@ -720,6 +574,9 @@ const SortableRow: React.FC<{ id: string; children: React.ReactNode; isDark: boo
 }
 
 const columnHelper = createColumnHelper<Task>()
+const TABLE_FIXED_LEFT_COLS = ['drag', 'done']
+const TABLE_FIXED_RIGHT_COLS = ['actions']
+const TABLE_MIDDLE_COLS_DEFAULT = ['title', 'status', 'priority', 'project', 'assignee', 'dueDate']
 
 // Proper React component so useContext obeys hooks rules
 const DragCell: React.FC<{ isDark: boolean }> = ({ isDark }) => {
@@ -791,12 +648,9 @@ const TasksTable: React.FC<{
   const [activeFilterCol, setActiveFilterCol] = useState<string | null>(null)
   const [tableSize, setTableSize] = useState<'compact' | 'default' | 'comfortable'>('default')
 
-  const FIXED_LEFT_COLS = ['drag', 'done']
-  const FIXED_RIGHT_COLS = ['actions']
-  const MIDDLE_COLS_DEFAULT = ['title', 'status', 'priority', 'project', 'assignee', 'dueDate']
-  const [middleColOrder, setMiddleColOrder] = useState<string[]>(MIDDLE_COLS_DEFAULT)
+  const [middleColOrder, setMiddleColOrder] = useState<string[]>(TABLE_MIDDLE_COLS_DEFAULT)
   const columnOrder = useMemo(
-    () => [...FIXED_LEFT_COLS, ...middleColOrder, ...FIXED_RIGHT_COLS],
+    () => [...TABLE_FIXED_LEFT_COLS, ...middleColOrder, ...TABLE_FIXED_RIGHT_COLS],
     [middleColOrder]
   )
 
@@ -806,7 +660,7 @@ const TasksTable: React.FC<{
     [projects]
   )
   const baseRows = useMemo(() => {
-    const filtered = filterPid ? tasks.filter(t => t.projectId === filterPid) : tasks
+    const filtered = filterPid ? tasks.filter(t => taskBelongsToProject(t, filterPid)) : tasks
     if (rowOrder.length === 0) return filtered
     const orderMap = Object.fromEntries(rowOrder.map((id, i) => [id, i]))
     return [...filtered].sort((a, b) => (orderMap[a.id] ?? 999) - (orderMap[b.id] ?? 999))
@@ -821,6 +675,7 @@ const TasksTable: React.FC<{
   const rowHover = isDark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.025)'
 
   // ── Column definitions ─────────────────────────────────────────────────────
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const columns = useMemo<ColumnDef<Task, any>[]>(() => [
     columnHelper.display({
       id: 'drag',
@@ -842,7 +697,7 @@ const TasksTable: React.FC<{
         return (
           <Tooltip title={isDone ? 'Marcar como pendente' : 'Marcar como concluída'} placement="right">
             <button
-              onClick={() => updateTask(r.id, { status: isDone ? 'todo' : 'done' })}
+              onClick={() => { void updateTask(r.id, { status: isDone ? 'todo' : 'done' }) }}
               style={{
                 width: 18,
                 height: 18,
@@ -940,13 +795,23 @@ const TasksTable: React.FC<{
             size="small"
             value={s}
             variant="borderless"
-            onChange={(val: TaskStatus) => updateTask(r.id, { status: val })}
+            onChange={(val: TaskStatus) => { void updateTask(r.id, { status: val }) }}
             style={{ width: '100%' }}
             popupMatchSelectWidth={false}
-            options={Object.entries(STATUS_CONFIG).map(([k, v]) => ({
-              value: k,
-              label: <Tag color={v.color} style={{ margin: 0 }}>{v.label}</Tag>,
-            }))}
+            options={Object.entries(STATUS_CONFIG).map(([k, v]) => {
+              const status = k as TaskStatus
+              const supported = API_SUPPORTED_STATUSES.has(status)
+              return {
+                value: k,
+                disabled: !supported,
+                label: (
+                  <Space size={4}>
+                    <Tag color={v.color} style={{ margin: 0 }}>{v.label}</Tag>
+                    {!supported && <Tag style={{ margin: 0 }}>Em desenvolvimento</Tag>}
+                  </Space>
+                ),
+              }
+            })}
           />
         )
       },
@@ -958,7 +823,7 @@ const TasksTable: React.FC<{
       size: 110,
       minSize: 80,
       cell: ({ getValue }) => {
-        const p = getValue()
+        const p = getValue() as TaskPriority
         return (
           <Tag color={PRIORITY_CONFIG[p].color} style={{ margin: 0 }}>
             {PRIORITY_CONFIG[p].label}
@@ -973,7 +838,8 @@ const TasksTable: React.FC<{
       size: 140,
       minSize: 80,
       cell: ({ getValue }) => {
-        const proj = projMap[getValue()]
+        const projectId = getValue() as string | undefined
+        const proj = projectId ? projMap[projectId] : undefined
         return (
           <Tag
             style={{
@@ -986,7 +852,7 @@ const TasksTable: React.FC<{
               whiteSpace: 'nowrap',
             }}
           >
-            {proj?.name ?? getValue()}
+            {proj?.name ?? 'Sem projeto'}
           </Tag>
         )
       },
@@ -1056,6 +922,7 @@ const TasksTable: React.FC<{
   ], [isDark, projMap, updateTask, deleteTask, onEdit, tableSize])
 
   // ── Table instance ─────────────────────────────────────────────────────────
+  // eslint-disable-next-line react-hooks/incompatible-library
   const table = useReactTable({
     data: baseRows,
     columns,
@@ -1540,12 +1407,6 @@ const ProjectHero: React.FC<{
 
 // ─── TASK EDIT CONTEXT ────────────────────────────────────────────────────────
 
-interface TaskEditCtx {
-  openEditTask: (task: Task | null, defaultProjectId?: string) => void
-}
-const TaskEditContext = createContext<TaskEditCtx>({ openEditTask: () => { } })
-export const useTaskEdit = () => useContext(TaskEditContext)
-
 const TaskEditProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [taskOpen, setTaskOpen] = useState(false)
   const [editingTask, setEditingTask] = useState<Task | null>(null)
@@ -1646,31 +1507,9 @@ interface ApiToken { id: string; name: string; prefix: string; createdAt: string
 
 export const UserSettingsView: React.FC = () => {
   const { isDark, toggle } = useTheme()
+  const { logout } = useAuth()
   const cardBg = isDark ? '#1e1e1e' : '#fff'
   const border = isDark ? '#3a3a3a' : '#f0f0f0'
-
-  const [tokens, setTokens] = useState<ApiToken[]>([
-    { id: 'tk1', name: 'CI/CD Pipeline', prefix: 'klip_ci_xxxx', createdAt: '2024-01-15' },
-  ])
-  const [tokenModalOpen, setTokenModalOpen] = useState(false)
-  const [newTokenVisible, setNewTokenVisible] = useState<string | null>(null)
-  const [tokenForm] = Form.useForm()
-
-  const handleCreateToken = () => {
-    tokenForm.validateFields().then((values) => {
-      const raw = `klip_${Math.random().toString(36).slice(2, 10)}_${Math.random().toString(36).slice(2, 18)}`
-      const token: ApiToken = {
-        id: `tk${Date.now()}`,
-        name: values.tokenName,
-        prefix: raw.slice(0, 14) + '…',
-        createdAt: new Date().toISOString().slice(0, 10),
-      }
-      setTokens(prev => [...prev, token])
-      setNewTokenVisible(raw)
-      setTokenModalOpen(false)
-      tokenForm.resetFields()
-    })
-  }
 
   const tokenColumns = [
     { title: 'Nome', dataIndex: 'name', key: 'name' },
@@ -1680,7 +1519,7 @@ export const UserSettingsView: React.FC = () => {
       title: '',
       key: 'actions',
       render: (_: unknown, rec: ApiToken) => (
-        <Button size="small" danger onClick={() => setTokens(prev => prev.filter(t => t.id !== rec.id))}>
+        <Button size="small" danger disabled aria-label={`Revogar token ${rec.name}`}>
           Revogar
         </Button>
       ),
@@ -1715,7 +1554,10 @@ export const UserSettingsView: React.FC = () => {
       {/* Profile */}
       <div style={{ background: cardBg, border: `1px solid ${border}` }}>
         <div style={{ padding: '10px 16px', borderBottom: `1px solid ${border}`, display: 'flex', alignItems: 'center', flexShrink: 0 }}>
-          <Text strong style={{ fontSize: 13 }}>Perfil</Text>
+          <Space size={8}>
+            <Text strong style={{ fontSize: 13 }}>Perfil</Text>
+            <Tag style={{ margin: 0 }}>Em desenvolvimento</Tag>
+          </Space>
         </div>
         <div style={{ padding: 16 }}>
           <Space size={24} align="start">
@@ -1724,16 +1566,16 @@ export const UserSettingsView: React.FC = () => {
               <Row gutter={16}>
                 <Col xs={24} sm={12}>
                   <Form.Item label="Nome completo">
-                    <Input defaultValue="Lucas Dev" />
+                    <Input disabled placeholder="Em desenvolvimento" />
                   </Form.Item>
                 </Col>
                 <Col xs={24} sm={12}>
                   <Form.Item label="E-mail">
-                    <Input defaultValue="lucas@example.com" />
+                    <Input disabled placeholder="Em desenvolvimento" />
                   </Form.Item>
                 </Col>
               </Row>
-              <Button type="primary">Salvar perfil</Button>
+              <Button type="primary" disabled>Salvar perfil</Button>
             </Form>
           </Space>
         </div>
@@ -1742,7 +1584,10 @@ export const UserSettingsView: React.FC = () => {
       {/* Account links */}
       <div style={{ background: cardBg, border: `1px solid ${border}` }}>
         <div style={{ padding: '10px 16px', borderBottom: `1px solid ${border}`, display: 'flex', alignItems: 'center', flexShrink: 0 }}>
-          <Text strong style={{ fontSize: 13 }}>Contas vinculadas</Text>
+          <Space size={8}>
+            <Text strong style={{ fontSize: 13 }}>Contas vinculadas</Text>
+            <Tag style={{ margin: 0 }}>Em desenvolvimento</Tag>
+          </Space>
         </div>
         <div style={{ padding: 16 }}>
           <Space direction="vertical" style={{ width: '100%' }} size={16}>
@@ -1757,7 +1602,7 @@ export const UserSettingsView: React.FC = () => {
                   <Text>{item.label}</Text>
                   {item.connected && <Tag color="success">Conectado</Tag>}
                 </Space>
-                <Button size="small">{item.connected ? 'Desvincular' : 'Vincular'}</Button>
+                <Button size="small" disabled>{item.connected ? 'Desvincular' : 'Vincular'}</Button>
               </div>
             ))}
           </Space>
@@ -1767,34 +1612,15 @@ export const UserSettingsView: React.FC = () => {
       {/* API Tokens */}
       <div style={{ background: cardBg, border: `1px solid ${border}` }}>
         <div style={{ padding: '10px 16px', borderBottom: `1px solid ${border}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexShrink: 0 }}>
-          <Text strong style={{ fontSize: 13 }}>Tokens de API</Text>
-          <Button size="small" type="primary" onClick={() => setTokenModalOpen(true)}>Novo token</Button>
+          <Space size={8}>
+            <Text strong style={{ fontSize: 13 }}>Tokens de API</Text>
+            <Tag style={{ margin: 0 }}>Em desenvolvimento</Tag>
+          </Space>
+          <Button size="small" type="primary" disabled>Novo token</Button>
         </div>
         <div style={{ padding: 16 }}>
-          {newTokenVisible && (
-            <Alert
-              type="success"
-              showIcon
-              style={{ marginBottom: 12 }}
-              message="Token criado — copie agora, ele não será exibido novamente."
-              description={
-                <Space>
-                  <code style={{ wordBreak: 'break-all' }}>{newTokenVisible}</code>
-                  <Button
-                    size="small"
-                    icon={<CopyOutlined />}
-                    onClick={() => { navigator.clipboard.writeText(newTokenVisible); setNewTokenVisible(null) }}
-                  >
-                    Copiar e fechar
-                  </Button>
-                </Space>
-              }
-              closable
-              onClose={() => setNewTokenVisible(null)}
-            />
-          )}
           <Table
-            dataSource={tokens}
+            dataSource={[] as ApiToken[]}
             columns={tokenColumns}
             rowKey="id"
             pagination={false}
@@ -1806,10 +1632,13 @@ export const UserSettingsView: React.FC = () => {
       {/* LLM Settings */}
       <div style={{ background: cardBg, border: `1px solid ${border}` }}>
         <div style={{ padding: '10px 16px', borderBottom: `1px solid ${border}`, display: 'flex', alignItems: 'center', flexShrink: 0 }}>
-          <Text strong style={{ fontSize: 13 }}>Configurações de LLM</Text>
+          <Space size={8}>
+            <Text strong style={{ fontSize: 13 }}>Configurações de LLM</Text>
+            <Tag style={{ margin: 0 }}>Em desenvolvimento</Tag>
+          </Space>
         </div>
         <div style={{ padding: 16 }}>
-          <Form layout="vertical">
+          <Form layout="vertical" disabled>
             <Row gutter={16}>
               <Col xs={24} sm={12}>
                 <Form.Item label="Provedor">
@@ -1836,25 +1665,16 @@ export const UserSettingsView: React.FC = () => {
             <Form.Item label="Prompt de sistema (opcional)">
               <Input.TextArea rows={3} placeholder="Você é um assistente de gestão de projetos..." />
             </Form.Item>
-            <Button type="primary" icon={<RobotOutlined />}>Salvar configurações de LLM</Button>
+            <Button type="primary" icon={<RobotOutlined />} disabled>Salvar configurações de LLM</Button>
           </Form>
         </div>
       </div>
 
-      {/* New token modal */}
-      <Modal
-        title="Novo token de API"
-        open={tokenModalOpen}
-        onCancel={() => { setTokenModalOpen(false); tokenForm.resetFields() }}
-        onOk={handleCreateToken}
-        okText="Criar token"
-      >
-        <Form form={tokenForm} layout="vertical">
-          <Form.Item name="tokenName" label="Nome do token" rules={[{ required: true, message: 'Informe um nome' }]}>
-            <Input placeholder="ex: CI/CD Pipeline" />
-          </Form.Item>
-        </Form>
-      </Modal>
+      <div style={{ display: 'flex', justifyContent: 'flex-end', paddingBottom: 8 }}>
+        <Button danger icon={<LogoutOutlined />} onClick={logout}>
+          Desconectar da conta
+        </Button>
+      </div>
     </div>
   )
 }
@@ -2032,6 +1852,83 @@ export const CustomFieldsSettingsView: React.FC = () => {
   )
 }
 
+const ProjectsOverview: React.FC<{
+  projects: Project[]
+  tasks: Task[]
+  onSelectProject: (projectId: string) => void
+  onEditProject: (project: Project) => void
+  onNewProject: () => void
+}> = ({ projects, tasks, onSelectProject, onEditProject, onNewProject }) => {
+  const { isDark } = useTheme()
+  const border = isDark ? '#3a3a3a' : 'rgba(0,0,0,0.08)'
+  const cardBg = isDark ? 'rgba(22,22,22,0.85)' : 'rgba(255,255,255,0.72)'
+
+  return (
+    <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 16 }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+        <Space direction="vertical" size={0}>
+          <Text strong style={{ fontSize: 18 }}>Projetos</Text>
+          <Text type="secondary" style={{ fontSize: 12 }}>Abra um projeto para ver suas tarefas em uma URL dedicada.</Text>
+        </Space>
+        <Button type="primary" icon={<FolderOutlined />} onClick={onNewProject}>
+          Novo Projeto
+        </Button>
+      </div>
+
+      {!projects.length ? (
+        <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', border: `1px solid ${border}`, background: cardBg }}>
+          <Empty description="Nenhum projeto" />
+        </div>
+      ) : (
+        <div style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))',
+          gap: 12,
+        }}>
+          {projects.map(project => {
+            const taskCount = tasks.filter(task => taskBelongsToProject(task, project.id)).length
+            return (
+              <Card
+                key={project.id}
+                size="small"
+                hoverable
+                onClick={() => onSelectProject(project.id)}
+                style={{ borderColor: border, borderLeft: `4px solid ${project.color}`, background: cardBg }}
+              >
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                  <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 8 }}>
+                    <Space size={8} align="start">
+                      <span style={{ display: 'inline-block', width: 10, height: 10, background: project.color, borderRadius: 3, marginTop: 5, flexShrink: 0 }} />
+                      <div>
+                        <Text strong>{project.name}</Text>
+                        {project.description && (
+                          <Text type="secondary" style={{ display: 'block', fontSize: 12, marginTop: 2 }}>
+                            {project.description}
+                          </Text>
+                        )}
+                      </div>
+                    </Space>
+                    <Button
+                      type="text"
+                      size="small"
+                      icon={<EditOutlined />}
+                      onClick={(event) => {
+                        event.stopPropagation()
+                        onEditProject(project)
+                      }}
+                    />
+                  </div>
+                  <Text type="secondary" style={{ fontSize: 12 }}>{taskCount} tarefas</Text>
+                </div>
+              </Card>
+            )
+          })}
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ─── MAIN APP ─────────────────────────────────────────────────────────────────
 
 const MainApp: React.FC = () => {
@@ -2039,15 +1936,17 @@ const MainApp: React.FC = () => {
   const { projects, tasks } = useAppData()
   const { showLoader, hideLoader } = useLoader()
   const { openEditTask } = useTaskEdit()
+  const { route, navigate } = useAppRoute()
 
   const [siderWidth, setSiderWidth] = useState(240)
   const [collapsed, setCollapsed] = useState(false)
   const [openKeys, setOpenKeys] = useState<string[]>(['projects'])
-  const [activeKey, setActiveKey] = useState('tasks')
-  const [filterPid, setFilterPid] = useState<string | undefined>()
   const [projOpen, setProjOpen] = useState(false)
   const [editingProj, setEditingProj] = useState<Project | null>(null)
   const [searchQuery, setSearchQuery] = useState('')
+  const filterPid = route.view === 'project' ? route.projectId : undefined
+  const currentProject = projects.find(p => p.id === filterPid)
+  const selectedMenuKey = getRouteMenuKey(route)
 
   // Simulate initial data load
   useEffect(() => {
@@ -2055,6 +1954,24 @@ const MainApp: React.FC = () => {
     const t = setTimeout(hideLoader, 1400)
     return () => clearTimeout(t)
   }, [showLoader, hideLoader])
+
+  useEffect(() => {
+    if (collapsed) return
+    const keyToOpen =
+      route.view === 'project' || route.view === 'projects'
+        ? 'projects'
+        : route.view === 'settings-user' || route.view === 'settings-fields'
+          ? 'settings'
+          : undefined
+
+    if (!keyToOpen) return
+
+    const timer = window.setTimeout(() => {
+      setOpenKeys(prev => prev.includes(keyToOpen) ? prev : [...prev, keyToOpen])
+    }, 0)
+
+    return () => window.clearTimeout(timer)
+  }, [collapsed, route.view])
 
   const COLLAPSED_W = 64
   const MIN_SIDER_W = 200
@@ -2093,15 +2010,20 @@ const MainApp: React.FC = () => {
 
   const onMenuClick = ({ key }: { key: string }) => {
     if (key.startsWith('pid-')) {
-      setFilterPid(key.replace('pid-', ''))
-      setActiveKey('tasks')
+      navigate({ view: 'project', projectId: key.replace('pid-', '') })
+    } else if (key === 'projects') {
+      navigate({ view: 'projects' })
     } else if (key === 'settings') {
-      setFilterPid(undefined)
-      setActiveKey('settings-user')
+      navigate({ view: 'settings-user' })
       setOpenKeys(prev => prev.includes('settings') ? prev : [...prev, 'settings'])
+    } else if (key === 'settings-user') {
+      navigate({ view: 'settings-user' })
+    } else if (key === 'settings-customfields') {
+      navigate({ view: 'settings-fields' })
+    } else if (key === 'calendar') {
+      navigate({ view: 'calendar' })
     } else {
-      setFilterPid(undefined)
-      setActiveKey(key)
+      navigate({ view: 'tasks' })
     }
   }
 
@@ -2112,8 +2034,6 @@ const MainApp: React.FC = () => {
       return next
     })
   }
-
-  const currentProject = projects.find(p => p.id === filterPid)
 
   return (
     <div style={{
@@ -2215,7 +2135,7 @@ const MainApp: React.FC = () => {
             <div style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden', display: 'flex', flexDirection: 'column', alignItems: collapsed ? 'center' : 'stretch' }}>
               <Menu
                 mode="inline"
-                selectedKeys={[filterPid ? `pid-${filterPid}` : activeKey]}
+                selectedKeys={[selectedMenuKey]}
                 openKeys={openKeys}
                 onOpenChange={keys => setOpenKeys(keys as string[])}
                 inlineCollapsed={collapsed}
@@ -2278,8 +2198,7 @@ const MainApp: React.FC = () => {
                     style={{ backgroundColor: '#6366f1', fontSize: 12, cursor: 'pointer' }}
                     icon={<UserOutlined />}
                     onClick={() => {
-                      setFilterPid(undefined)
-                      setActiveKey('settings-user')
+                      navigate({ view: 'settings-user' })
                       setOpenKeys(prev => prev.includes('settings') ? prev : [...prev, 'settings'])
                     }}
                   />
@@ -2289,12 +2208,20 @@ const MainApp: React.FC = () => {
 
             {/* CONTENT */}
             <Content style={{ padding: 20, overflow: 'hidden', background: 'transparent', display: 'flex', flexDirection: 'column' }}>
-              {activeKey === 'calendar' ? (
+              {route.view === 'calendar' ? (
                 <CalendarView />
-              ) : activeKey === 'settings-user' ? (
+              ) : route.view === 'settings-user' ? (
                 <UserSettingsView />
-              ) : activeKey === 'settings-customfields' ? (
+              ) : route.view === 'settings-fields' ? (
                 <CustomFieldsSettingsView />
+              ) : route.view === 'projects' ? (
+                <ProjectsOverview
+                  projects={projects}
+                  tasks={tasks}
+                  onSelectProject={(projectId) => navigate({ view: 'project', projectId })}
+                  onEditProject={(project) => { setEditingProj(project); setProjOpen(true) }}
+                  onNewProject={() => { setEditingProj(null); setProjOpen(true) }}
+                />
               ) : (
                 <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
                   {currentProject ? (
@@ -2327,7 +2254,7 @@ const MainApp: React.FC = () => {
                         {filterPid ? `Tarefas — ${currentProject?.name}` : 'Todas as Tarefas'}
                       </Text>
                       {filterPid && (
-                        <Button type="text" size="small" onClick={() => setFilterPid(undefined)}>
+                        <Button type="text" size="small" onClick={() => navigate({ view: 'tasks' })}>
                           Ver todas ×
                         </Button>
                       )}
@@ -2380,7 +2307,7 @@ const ThemeWrapper: React.FC<{ children: React.ReactNode }> = ({ children }) => 
     <ThemeContext.Provider value={{ isDark, toggle }}>
       <ConfigProvider
         theme={{
-          cssVar: true,
+          cssVar: { key: 'klip' },
           algorithm: isDark ? antTheme.darkAlgorithm : antTheme.defaultAlgorithm,
           token: {
             colorPrimary: '#6366f1',
@@ -2409,11 +2336,10 @@ const ThemeWrapper: React.FC<{ children: React.ReactNode }> = ({ children }) => 
 // ─── MOBILE DETECTION ─────────────────────────────────────────────────────────
 
 const useMobileDetect = () => {
-  const [isMobile, setIsMobile] = useState(() => window.innerWidth <= 768)
+  const [isMobile, setIsMobile] = useState(() => window.matchMedia('(max-width: 768px)').matches)
   useEffect(() => {
     const mq = window.matchMedia('(max-width: 768px)')
     const handler = (e: MediaQueryListEvent) => setIsMobile(e.matches)
-    setIsMobile(mq.matches)
     mq.addEventListener('change', handler)
     return () => mq.removeEventListener('change', handler)
   }, [])
@@ -2424,17 +2350,29 @@ const useMobileDetect = () => {
 
 import MobileApp from './MobileApp'
 
-export default function App() {
+const AuthenticatedShell: React.FC = () => {
+  const { isAuthenticated, loading } = useAuth()
   const isMobile = useMobileDetect()
+
+  if (loading || !isAuthenticated) return null
+
+  return (
+    <AppDataProvider>
+      <TaskEditProvider>
+        {isMobile ? <MobileApp /> : <MainApp />}
+      </TaskEditProvider>
+    </AppDataProvider>
+  )
+}
+
+export default function App() {
   return (
     <ThemeWrapper>
       <AntApp>
         <LoaderProvider>
-          <AppDataProvider>
-            <TaskEditProvider>
-              {isMobile ? <MobileApp /> : <MainApp />}
-            </TaskEditProvider>
-          </AppDataProvider>
+          <AuthProvider>
+            <AuthenticatedShell />
+          </AuthProvider>
         </LoaderProvider>
       </AntApp>
     </ThemeWrapper>

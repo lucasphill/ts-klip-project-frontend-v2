@@ -9,6 +9,7 @@ Target modularization:
 - Domain/API types in `src/types`.
 - HTTP clients and endpoint wrappers in `src/services`.
 - API-to-UI transforms in `src/lib` or `src/adapters`.
+- URL parsing and navigation helpers in `src/lib/routes.ts` and `src/hooks/useAppRoute.ts`.
 - Shared state/actions in `src/contexts` or focused hooks.
 - Desktop/mobile presentational pieces in `src/components` and page-level views only after shared data flow exists.
 
@@ -21,7 +22,22 @@ Target modularization:
 5. Replace v2 mock data with provider data and domain actions.
 6. Wire desktop task/project/custom field flows.
 7. Wire mobile task/project/custom field flows using the same actions.
-8. Revisit calendar/settings after core CRUD works.
+8. Add route-level navigation for tasks, projects, project IDs, calendar, and settings.
+9. Revisit calendar/settings after core CRUD works.
+
+## Route Contract
+
+Preserve these canonical paths unless the user requests a route change:
+
+- `/` and `/tasks`: all tasks.
+- `/projects`: project overview/list.
+- `/projects/:projectId`: task screen scoped to a project ID.
+- `/calendar`: due-date calendar.
+- `/settings/user`: user settings.
+- `/settings/fields`: custom field settings.
+- `/user` and `/fields`: accepted aliases that should normalize through route parsing.
+
+Desktop sidebar, mobile tabs, project cards, avatar/account buttons, and clear-filter actions must call the shared navigation helper. Avoid separate desktop/mobile route parsing.
 
 ## Feature Parity
 

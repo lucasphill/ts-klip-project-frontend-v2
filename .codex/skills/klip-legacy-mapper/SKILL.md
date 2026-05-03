@@ -41,6 +41,7 @@ Always check these areas unless the user asks for a narrower slice:
 - Task/project assignment through `ProjectsTasks`.
 - Custom field definitions, universal/project scope, project assignment, and custom field values.
 - Calendar/month/week views and any route-level behavior.
+- URL route parity for `/tasks`, `/projects`, `/projects/:projectId`, `/calendar`, `/settings/user`, and `/settings/fields`.
 - Table filters, sorting, column/search preferences, hierarchy display, and local storage.
 - V2-only UI features such as advanced status, priority, assignee, API tokens, integrations, and LLM settings.
 

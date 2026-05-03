@@ -8,7 +8,6 @@ import {
   Space,
   Tag,
   Typography,
-  Tooltip,
 } from 'antd'
 import {
   CheckSquareOutlined,
@@ -22,18 +21,17 @@ import {
   DeleteOutlined,
 } from '@ant-design/icons'
 import {
-  useTheme,
-  useAppData,
-  useTaskEdit,
-  STATUS_CONFIG,
-  PRIORITY_CONFIG,
   CalendarView,
   UserSettingsView,
   CustomFieldsSettingsView,
   TaskDrawer,
   ProjectDrawer,
 } from './App'
-import type { Task, Project } from './App'
+import { useAppData, useTaskEdit, useTheme } from './contexts/appContexts'
+import { PRIORITY_CONFIG, STATUS_CONFIG } from './constants/ui'
+import type { Project, Task } from './types/domain'
+import { taskBelongsToProject } from './lib/klipAdapters'
+import { useAppRoute } from './hooks/useAppRoute'
 
 const { Text } = Typography
 
@@ -89,7 +87,7 @@ const TaskCard: React.FC<{ task: Task; onEdit: (t: Task) => void }> = ({ task, o
             size="small"
             danger
             icon={<DeleteOutlined />}
-            onClick={() => deleteTask(task.id)}
+            onClick={() => { void deleteTask(task.id) }}
             style={{ padding: '0 4px' }}
           />
         </Space>
@@ -104,12 +102,10 @@ const TaskCard: React.FC<{ task: Task; onEdit: (t: Task) => void }> = ({ task, o
       </div>
 
       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-        {project && (
-          <Space size={4}>
-            <span style={{ display: 'inline-block', width: 8, height: 8, background: project.color, flexShrink: 0 }} />
-            <Text type="secondary" style={{ fontSize: 12 }}>{project.name}</Text>
-          </Space>
-        )}
+        <Space size={4}>
+          {project && <span style={{ display: 'inline-block', width: 8, height: 8, background: project.color, flexShrink: 0 }} />}
+          <Text type="secondary" style={{ fontSize: 12 }}>{project?.name ?? 'Sem projeto'}</Text>
+        </Space>
         {task.dueDate && (
           <Text type="secondary" style={{ fontSize: 12 }}>· {task.dueDate}</Text>
         )}
@@ -127,7 +123,7 @@ const MobileTaskList: React.FC<{ filterPid?: string }> = ({ filterPid }) => {
   const border = isDark ? '#3a3a3a' : '#f0f0f0'
 
   const filtered = useMemo(() =>
-    filterPid ? tasks.filter(t => t.projectId === filterPid) : tasks,
+    filterPid ? tasks.filter(t => taskBelongsToProject(t, filterPid)) : tasks,
     [tasks, filterPid]
   )
 
@@ -182,7 +178,7 @@ const MobileProjectsList: React.FC<{
         </div>
       )}
       {projects.map(p => {
-        const count = tasks.filter(t => t.projectId === p.id).length
+        const count = tasks.filter(t => taskBelongsToProject(t, p.id)).length
         return (
           <div
             key={p.id}
@@ -207,7 +203,7 @@ const MobileProjectsList: React.FC<{
             <Text type="secondary" style={{ fontSize: 12, flexShrink: 0 }}>{count} tarefas</Text>
             <Space size={2}>
               <Button type="text" size="small" icon={<EditOutlined />} onClick={() => onEditProject(p)} />
-              <Button type="text" size="small" danger icon={<DeleteOutlined />} onClick={() => deleteProject(p.id)} />
+              <Button type="text" size="small" danger icon={<DeleteOutlined />} onClick={() => { void deleteProject(p.id) }} />
             </Space>
           </div>
         )
@@ -218,11 +214,13 @@ const MobileProjectsList: React.FC<{
 
 // ─── MOBILE SETTINGS ──────────────────────────────────────────────────────────
 
-const MobileSettingsView: React.FC = () => {
+const MobileSettingsView: React.FC<{
+  section: 'user' | 'customfields'
+  onSectionChange: (section: 'user' | 'customfields') => void
+}> = ({ section, onSectionChange }) => {
   const { isDark } = useTheme()
   const border = isDark ? '#3a3a3a' : '#f0f0f0'
   const headerBg = isDark ? '#161616' : '#fafafa'
-  const [tab, setTab] = useState<'user' | 'customfields'>('user')
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
@@ -239,21 +237,21 @@ const MobileSettingsView: React.FC = () => {
         ] as const).map(item => (
           <button
             key={item.key}
-            onClick={() => setTab(item.key)}
+            onClick={() => onSectionChange(item.key)}
             style={{
               flex: 1,
               padding: '12px 8px',
               border: 'none',
-              borderBottom: tab === item.key ? '2px solid #6366f1' : '2px solid transparent',
+              borderBottom: section === item.key ? '2px solid #6366f1' : '2px solid transparent',
               background: 'transparent',
               cursor: 'pointer',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
               gap: 6,
-              color: tab === item.key ? '#6366f1' : (isDark ? 'rgba(255,255,255,0.55)' : 'rgba(0,0,0,0.45)'),
+              color: section === item.key ? '#6366f1' : (isDark ? 'rgba(255,255,255,0.55)' : 'rgba(0,0,0,0.45)'),
               fontSize: 13,
-              fontWeight: tab === item.key ? 600 : 400,
+              fontWeight: section === item.key ? 600 : 400,
               transition: 'color 0.2s',
             }}
           >
@@ -263,7 +261,7 @@ const MobileSettingsView: React.FC = () => {
         ))}
       </div>
       <div style={{ flex: 1, overflowY: 'auto', padding: 12, display: 'flex', flexDirection: 'column' }}>
-        {tab === 'user' ? <UserSettingsView /> : <CustomFieldsSettingsView />}
+        {section === 'user' ? <UserSettingsView /> : <CustomFieldsSettingsView />}
       </div>
     </div>
   )
@@ -283,17 +281,22 @@ const TABS: { key: TabKey; icon: React.ReactNode; label: string }[] = [
 // ─── MOBILE APP ───────────────────────────────────────────────────────────────
 
 const MobileApp: React.FC = () => {
-  const { isDark, toggle } = useTheme()
+  const { isDark } = useTheme()
   const { projects } = useAppData()
-  const { openEditTask } = useTaskEdit()
+  const { route, navigate } = useAppRoute()
 
-  const [activeTab, setActiveTab] = useState<TabKey>('tasks')
-  const [filterPid, setFilterPid] = useState<string | undefined>()
   const [projDrawerOpen, setProjDrawerOpen] = useState(false)
   const [projOpen, setProjOpen] = useState(false)
   const [editingProj, setEditingProj] = useState<Project | null>(null)
   const [taskDrawerOpen, setTaskDrawerOpen] = useState(false)
   const [editingTask, setEditingTask] = useState<Task | null>(null)
+  const activeTab: TabKey =
+    route.view === 'projects' ? 'projects' :
+      route.view === 'calendar' ? 'calendar' :
+        route.view === 'settings-user' || route.view === 'settings-fields' ? 'settings' :
+          'tasks'
+  const filterPid = route.view === 'project' ? route.projectId : undefined
+  const settingsSection = route.view === 'settings-fields' ? 'customfields' : 'user'
 
   const border = isDark ? '#3a3a3a' : 'rgba(0,0,0,0.08)'
   const headerBg = isDark ? 'rgba(22,22,22,0.97)' : 'rgba(255,255,255,0.95)'
@@ -309,12 +312,11 @@ const MobileApp: React.FC = () => {
   const openEdit = (task: Task | null, pid?: string) => {
     setEditingTask(task)
     setTaskDrawerOpen(true)
-    if (pid) setFilterPid(pid)
+    if (pid) navigate({ view: 'project', projectId: pid })
   }
 
   const handleSelectProject = (pid: string) => {
-    setFilterPid(pid)
-    setActiveTab('tasks')
+    navigate({ view: 'project', projectId: pid })
     setProjDrawerOpen(false)
   }
 
@@ -360,7 +362,7 @@ const MobileApp: React.FC = () => {
             type="text"
             size="small"
             icon={<UserOutlined style={{ fontSize: 15 }} />}
-            onClick={() => setActiveTab('settings')}
+            onClick={() => navigate({ view: 'settings-user' })}
             style={{ color: isDark ? 'rgba(255,255,255,0.7)' : 'rgba(0,0,0,0.5)' }}
           />
         </Space>
@@ -381,7 +383,7 @@ const MobileApp: React.FC = () => {
             }}>
               <Text strong style={{ fontSize: 13 }}>{filterLabel}</Text>
               {filterPid && (
-                <Button type="text" size="small" onClick={() => setFilterPid(undefined)}>
+                <Button type="text" size="small" onClick={() => navigate({ view: 'tasks' })}>
                   Ver todas ×
                 </Button>
               )}
@@ -404,7 +406,12 @@ const MobileApp: React.FC = () => {
           </div>
         )}
 
-        {activeTab === 'settings' && <MobileSettingsView />}
+        {activeTab === 'settings' && (
+          <MobileSettingsView
+            section={settingsSection}
+            onSectionChange={(section) => navigate({ view: section === 'user' ? 'settings-user' : 'settings-fields' })}
+          />
+        )}
       </div>
 
       {/* ── BOTTOM TAB BAR ── */}
@@ -423,7 +430,12 @@ const MobileApp: React.FC = () => {
           return (
             <button
               key={tab.key}
-              onClick={() => setActiveTab(tab.key)}
+              onClick={() => {
+                if (tab.key === 'projects') navigate({ view: 'projects' })
+                else if (tab.key === 'calendar') navigate({ view: 'calendar' })
+                else if (tab.key === 'settings') navigate({ view: 'settings-user' })
+                else navigate({ view: 'tasks' })
+              }}
               style={{
                 flex: 1,
                 display: 'flex',
@@ -481,7 +493,7 @@ const MobileApp: React.FC = () => {
       >
         <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
           <button
-            onClick={() => { setFilterPid(undefined); setProjDrawerOpen(false) }}
+            onClick={() => { navigate({ view: 'tasks' }); setProjDrawerOpen(false) }}
             style={{
               padding: '10px 12px',
               border: 'none',

@@ -1,6 +1,6 @@
 ---
 name: klip-v2-implementer
-description: Implement real Klip functionality inside the new React/Ant Design v2 shell. Use when Codex needs to replace mock data in C:\dev\ts-klip-project-frontend-v2, preserve the current App.tsx/MobileApp.tsx layout, modularize the shell, wire Auth0/API services, or migrate tasks, projects, custom fields, subtasks, calendar, and settings from the legacy frontend.
+description: Implement real Klip functionality inside the new React/Ant Design v2 shell. Use when Codex needs to replace mock data in C:\dev\ts-klip-project-frontend-v2, preserve the current App.tsx/MobileApp.tsx layout, modularize the shell, wire Auth0/API services, add URL routing, or migrate tasks, projects, custom fields, subtasks, calendar, and settings from the legacy frontend.
 ---
 
 # Klip V2 Implementer
@@ -20,8 +20,9 @@ Use this skill to implement migration work after the feature map is known. Prese
 3. Extract shared types, API clients, adapters, contexts, hooks, and reusable components before wiring both desktop and mobile views.
 4. Replace mock arrays only through shared providers or hooks, not through duplicate page-local state.
 5. Keep desktop and mobile behavior equivalent by sharing the same service layer and domain actions.
-6. Mark API-missing features as `Em desenvolvimento` in the UI instead of faking persistence.
-7. Run `npm run lint` and `npm run build` after implementation changes.
+6. Keep URL routing in the shared route utilities/hooks; do not duplicate route parsing in desktop and mobile shells.
+7. Mark API-missing features as `Em desenvolvimento` in the UI instead of faking persistence.
+8. Run `npm run lint` and `npm run build` after implementation changes.
 
 ## Non-Negotiables
 
@@ -29,8 +30,22 @@ Use this skill to implement migration work after the feature map is known. Prese
 - Do not copy the legacy layout over the v2 layout.
 - Do not expose `.env` values in logs, UI, tests, or summaries.
 - Do not add one-off data transforms in components when an adapter or helper can centralize the rule.
+- Do not install routing dependencies unless explicitly approved; prefer the repo-local History API route helper while the route set remains simple.
 - Prefer Ant Design documented props/tokens and the existing v2 visual language.
 - Preserve readable TypeScript types over `any`; use `unknown` only at API/error boundaries.
+
+## Route Contract
+
+Use `src/lib/routes.ts` and `src/hooks/useAppRoute.ts` as the source of truth for navigation.
+
+- `/` and `/tasks`: all tasks.
+- `/projects`: project overview.
+- `/projects/:projectId`: project-specific task screen.
+- `/calendar`: calendar.
+- `/settings/user` and `/user`: user settings.
+- `/settings/fields` and `/fields`: custom field settings.
+
+Update both desktop and mobile navigation through `navigate(route)` instead of local-only screen state.
 
 ## Unsupported UI Policy
 
