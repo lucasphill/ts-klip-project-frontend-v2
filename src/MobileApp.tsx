@@ -1,17 +1,16 @@
-import React, { useState, useMemo, useRef, useCallback } from 'react'
+import React, { useState, useMemo, useRef, useCallback, useEffect } from 'react'
 import {
-  Badge,
   Button,
   Drawer,
   Empty,
   FloatButton,
   Segmented,
   Space,
-  Tag,
   Typography,
 } from 'antd'
 import {
   CheckSquareOutlined,
+  CheckCircleOutlined,
   CalendarOutlined,
   FolderOutlined,
   SettingOutlined,
@@ -29,8 +28,15 @@ import {
 } from './App'
 import { useAppData, useTaskEdit, useTheme } from './contexts/appContexts'
 import { PRIORITY_CONFIG, STATUS_CONFIG } from './constants/ui'
-import type { Project, Task } from './types/domain'
+import type { CustomField, Project, Task } from './types/domain'
 import { taskBelongsToProject } from './lib/klipAdapters'
+import {
+  compareTaskDisplayText,
+  getCustomFieldValue,
+  getCustomFieldValueLabel,
+  getDueDateLabel,
+  getTaskProjectIds,
+} from './lib/taskDisplay'
 import { useAppRoute } from './hooks/useAppRoute'
 import { useUserPreference } from './hooks/useUserPreference'
 import { TASK_STATUS_FILTER_OPTIONS, type TaskStatusFilter } from './types/preferences'
@@ -38,8 +44,8 @@ import { useVirtualizer } from '@tanstack/react-virtual'
 
 const { Text } = Typography
 
-const MOBILE_TASK_ITEM_HEIGHT = 118
-const MOBILE_TASK_OVERSCAN = 4
+const MOBILE_TASK_ITEM_ESTIMATE = 116
+const MOBILE_TASK_OVERSCAN = 5
 
 // ─── LOGO SVG ─────────────────────────────────────────────────────────────────
 
@@ -54,32 +60,97 @@ const KlipLogoSvg: React.FC = () => (
 
 const TaskCard = React.memo<{
   task: Task
-  project?: Project
+  projectById: Map<string, Project>
+  customFields: CustomField[]
+  filterPid?: string
   onEdit: (task: Task) => void
   onDelete: (taskId: string) => void
-}>(({ task, project, onEdit, onDelete }) => {
+  onToggleComplete: (task: Task) => void
+}>(({ task, projectById, customFields, filterPid, onEdit, onDelete, onToggleComplete }) => {
   const { isDark } = useTheme()
   const border = isDark ? '#3a3a3a' : '#f0f0f0'
   const bg = isDark ? '#1e1e1e' : '#fff'
   const secondaryTextColor = isDark ? 'rgba(255,255,255,0.68)' : '#595959'
   const statusCfg = STATUS_CONFIG[task.status]
   const priorityCfg = PRIORITY_CONFIG[task.priority]
+  const isDone = task.status === 'done'
+  const taskProjectIds = useMemo(() => getTaskProjectIds(task), [task])
+  const project = taskProjectIds.map(projectId => projectById.get(projectId)).find(Boolean)
+  const projectLabel = taskProjectIds
+    .map(projectId => projectById.get(projectId)?.name)
+    .filter((name): name is string => Boolean(name))
+    .join(' · ') || 'Sem projeto'
+  const dueDateLabel = getDueDateLabel(task.dueDate)
+  const customFieldSummaries = useMemo(
+    () => customFields
+      .filter(field => {
+        if (field.scope === 'universal') return true
+        if (filterPid) return field.projectIds.includes(filterPid)
+        return field.projectIds.some(projectId => taskProjectIds.includes(projectId))
+      })
+      .sort((left, right) => {
+        if (left.scope !== right.scope) return left.scope === 'universal' ? -1 : 1
+        return compareTaskDisplayText(left.name, right.name)
+      })
+      .map(field => ({
+        id: field.id,
+        name: field.name,
+        value: getCustomFieldValueLabel(field, getCustomFieldValue(task, field)),
+      }))
+      .filter(field => field.value.length > 0),
+    [customFields, filterPid, task, taskProjectIds],
+  )
 
   return (
     <div
       style={{
-        height: MOBILE_TASK_ITEM_HEIGHT - 1,
         boxSizing: 'border-box',
         background: bg,
         border: `1px solid ${border}`,
-        padding: '12px 14px',
+        padding: '8px 10px 9px',
         display: 'flex',
-        flexDirection: 'column',
-        gap: 6,
-        overflow: 'hidden',
+        alignItems: 'flex-start',
+        gap: 8,
+        minHeight: 78,
       }}
     >
-      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 8, minWidth: 0 }}>
+      <button
+        type="button"
+        aria-label={`${isDone ? 'Marcar como pendente' : 'Marcar como concluída'}: ${task.title}`}
+        onClick={() => onToggleComplete(task)}
+        style={{
+          width: 44,
+          height: 44,
+          border: 0,
+          borderRadius: 22,
+          background: 'transparent',
+          color: 'inherit',
+          cursor: 'pointer',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          padding: 0,
+          flexShrink: 0,
+        }}
+      >
+        {isDone ? (
+          <CheckCircleOutlined style={{ fontSize: 20, color: '#10b981' }} />
+        ) : (
+          <span
+            aria-hidden="true"
+            style={{
+              display: 'block',
+              width: 18,
+              height: 18,
+              borderRadius: '50%',
+              border: `1.5px solid ${isDark ? '#6b7280' : '#b7b7b7'}`,
+              background: isDark ? '#171717' : '#ffffff',
+            }}
+          />
+        )}
+      </button>
+      <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 4 }}>
+      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 6, minWidth: 0 }}>
         <button
           type="button"
           aria-label={`Abrir detalhes de ${task.title}`}
@@ -89,30 +160,32 @@ const TaskCard = React.memo<{
             minWidth: 0,
             border: 0,
             background: 'transparent',
-            color: 'inherit',
+            color: isDone ? secondaryTextColor : 'inherit',
             cursor: 'pointer',
             font: 'inherit',
             fontSize: 14,
             fontWeight: 700,
-            lineHeight: 1.4,
+            lineHeight: '19px',
             padding: 0,
             textAlign: 'left',
+            textDecoration: isDone ? 'line-through' : 'none',
             display: '-webkit-box',
             WebkitLineClamp: 2,
             WebkitBoxOrient: 'vertical',
             overflow: 'hidden',
+            overflowWrap: 'anywhere',
           }}
         >
           {task.title}
         </button>
-        <Space size={4} style={{ flexShrink: 0 }}>
+        <Space size={2} style={{ flexShrink: 0, marginTop: -4 }}>
           <Button
             type="text"
             size="small"
             icon={<EditOutlined />}
             aria-label={`Editar ${task.title}`}
             onClick={() => onEdit(task)}
-            style={{ padding: '0 4px' }}
+            style={{ width: 36, height: 36, padding: 0 }}
           />
           <Button
             type="text"
@@ -121,27 +194,59 @@ const TaskCard = React.memo<{
             icon={<DeleteOutlined />}
             aria-label={`Remover ${task.title}`}
             onClick={() => onDelete(task.id)}
-            style={{ padding: '0 4px' }}
+            style={{ width: 36, height: 36, padding: 0 }}
           />
         </Space>
       </div>
 
-      <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-        <Badge
-          status={statusCfg.color as 'default' | 'processing' | 'success' | 'warning' | 'error'}
-          text={<Text style={{ fontSize: 12 }}>{statusCfg.label}</Text>}
-        />
-        <Tag color={priorityCfg.color} style={{ fontSize: 11, margin: 0 }}>{priorityCfg.label}</Tag>
+      {task.description.trim().length > 0 && (
+        <Text
+          style={{
+            fontSize: 12,
+            color: secondaryTextColor,
+            lineHeight: '16px',
+            display: '-webkit-box',
+            WebkitLineClamp: 2,
+            WebkitBoxOrient: 'vertical',
+            overflow: 'hidden',
+            overflowWrap: 'anywhere',
+          }}
+        >
+          {task.description}
+        </Text>
+      )}
+
+      <div style={{ display: 'flex', alignItems: 'center', gap: '2px 8px', minWidth: 0, flexWrap: 'wrap' }}>
+        <Space size={4} style={{ minWidth: 0, maxWidth: '100%', overflow: 'visible' }}>
+          {project && <span style={{ display: 'inline-block', width: 8, height: 8, background: project.color, flexShrink: 0 }} />}
+          <Text style={{ fontSize: 11, color: secondaryTextColor, lineHeight: '16px', whiteSpace: 'normal', overflowWrap: 'anywhere' }}>{projectLabel}</Text>
+        </Space>
+        {dueDateLabel && (
+          <Text style={{ fontSize: 11, color: secondaryTextColor, flexShrink: 0 }}>· {task.dueDate}</Text>
+        )}
+        <Text style={{ fontSize: 11, color: secondaryTextColor, flexShrink: 0 }}>· {statusCfg.label}</Text>
+        <Text style={{ fontSize: 11, color: secondaryTextColor, flexShrink: 0 }}>· {priorityCfg.label}</Text>
       </div>
 
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0, overflow: 'hidden' }}>
-        <Space size={4} style={{ minWidth: 0, overflow: 'hidden' }}>
-          {project && <span style={{ display: 'inline-block', width: 8, height: 8, background: project.color, flexShrink: 0 }} />}
-          <Text style={{ fontSize: 12, color: secondaryTextColor, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{project?.name ?? 'Sem projeto'}</Text>
-        </Space>
-        {task.dueDate && (
-          <Text style={{ fontSize: 12, color: secondaryTextColor }}>· {task.dueDate}</Text>
-        )}
+      {customFieldSummaries.length > 0 && (
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '2px 8px', minWidth: 0 }}>
+          {customFieldSummaries.map(field => (
+            <span
+              key={field.id}
+              style={{
+                fontSize: 11,
+                lineHeight: '16px',
+                color: secondaryTextColor,
+                minWidth: 0,
+                maxWidth: '100%',
+                overflowWrap: 'anywhere',
+              }}
+            >
+              <strong style={{ color: isDark ? 'rgba(255,255,255,0.84)' : '#404040' }}>{field.name}:</strong> {field.value}
+            </span>
+          ))}
+        </div>
+      )}
       </div>
     </div>
   )
@@ -152,7 +257,7 @@ TaskCard.displayName = 'TaskCard'
 // ─── MOBILE TASK LIST ─────────────────────────────────────────────────────────
 
 const MobileTaskList: React.FC<{ filterPid?: string }> = ({ filterPid }) => {
-  const { tasks, projects, deleteTask } = useAppData()
+  const { tasks, projects, customFields, deleteTask, updateTask } = useAppData()
   const { openEditTask } = useTaskEdit()
   const { isDark } = useTheme()
   const [statusFilter, setStatusFilter] = useUserPreference('taskStatusFilter')
@@ -165,6 +270,9 @@ const MobileTaskList: React.FC<{ filterPid?: string }> = ({ filterPid }) => {
   const handleDeleteTask = useCallback((taskId: string) => {
     void deleteTask(taskId)
   }, [deleteTask])
+  const handleToggleComplete = useCallback((task: Task) => {
+    void updateTask(task.id, { status: task.status === 'done' ? 'todo' : 'done' })
+  }, [updateTask])
 
   const filtered = useMemo(() => {
     const scopedTasks = filterPid ? tasks.filter(t => taskBelongsToProject(t, filterPid)) : tasks
@@ -178,10 +286,14 @@ const MobileTaskList: React.FC<{ filterPid?: string }> = ({ filterPid }) => {
   const virtualizer = useVirtualizer({
     count: filtered.length,
     getScrollElement: () => scrollRef.current,
-    estimateSize: () => MOBILE_TASK_ITEM_HEIGHT,
+    estimateSize: () => MOBILE_TASK_ITEM_ESTIMATE,
     overscan: MOBILE_TASK_OVERSCAN,
   })
   const virtualItems = virtualizer.getVirtualItems()
+
+  useEffect(() => {
+    virtualizer.measure()
+  }, [customFields.length, filtered.length, statusFilter, virtualizer])
 
   if (!filtered.length) {
     return (
@@ -228,12 +340,12 @@ const MobileTaskList: React.FC<{ filterPid?: string }> = ({ filterPid }) => {
               <div
                 key={task.id}
                 data-index={virtualItem.index}
+                ref={virtualizer.measureElement}
                 style={{
                   position: 'absolute',
                   top: 0,
                   left: 0,
                   width: '100%',
-                  height: MOBILE_TASK_ITEM_HEIGHT,
                   transform: `translateY(${virtualItem.start}px)`,
                   paddingBottom: 1,
                   boxSizing: 'border-box',
@@ -242,9 +354,12 @@ const MobileTaskList: React.FC<{ filterPid?: string }> = ({ filterPid }) => {
               >
                 <TaskCard
                   task={task}
-                  project={projectById.get(task.projectId)}
+                  projectById={projectById}
+                  customFields={customFields}
+                  filterPid={filterPid}
                   onEdit={openEditTask}
                   onDelete={handleDeleteTask}
+                  onToggleComplete={handleToggleComplete}
                 />
               </div>
             )
@@ -507,7 +622,7 @@ const MobileApp: React.FC = () => {
       </div>
 
       {/* ── CONTENT ── */}
-      <main style={{ flex: 1, minHeight: 0, overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
+      <main style={{ flex: 1, minHeight: 0, overflowY: activeTab === 'tasks' ? 'hidden' : 'auto', display: 'flex', flexDirection: 'column' }}>
         {activeTab === 'tasks' && (
           <div style={{ padding: 12, display: 'flex', flexDirection: 'column', gap: 8, flex: 1, minHeight: 0, overflow: 'hidden' }}>
             <div style={{

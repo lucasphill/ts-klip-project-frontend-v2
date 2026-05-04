@@ -33,7 +33,12 @@ import { useVirtualizer } from '@tanstack/react-virtual'
 import { useAppData, useTheme } from '../contexts/appContexts'
 import { useUserPreference } from '../hooks/useUserPreference'
 import { taskBelongsToProject } from '../lib/klipAdapters'
-import { matchesSearchText, normalizeSearchText } from '../lib/search'
+import { matchesSearchText } from '../lib/search'
+import {
+  compareTaskDisplayText as compareText,
+  getCustomFieldValue,
+  getTaskProjectIds,
+} from '../lib/taskDisplay'
 import { TASK_STATUS_FILTER_OPTIONS, type TaskStatusFilter } from '../types/preferences'
 import type { CustomField, Task } from '../types/domain'
 
@@ -51,31 +56,9 @@ const taskTableColumnHelper = createColumnHelper<TaskTableRow>()
 const TASK_TABLE_FIXED_LEFT_COLS = ['done']
 const TASK_TABLE_FIXED_RIGHT_COLS = ['actions']
 
-const compareText = (left: unknown, right: unknown) =>
-  String(left ?? '').localeCompare(String(right ?? ''), 'pt-BR', {
-    sensitivity: 'base',
-    numeric: true,
-  })
-
 const normalizeParentTaskId = (value?: string | null) => {
   const trimmed = typeof value === 'string' ? value.trim() : ''
   return trimmed.length > 0 ? trimmed : undefined
-}
-
-const getTaskProjectIds = (task: Task) =>
-  Array.from(new Set([task.projectId, ...task.projectIds].filter((id): id is string => Boolean(id))))
-
-const getCustomFieldValue = (task: Task, field: CustomField) => {
-  const values = task.customFieldValues ?? {}
-  const candidateKeys = [field.id, field.name, normalizeSearchText(field.name)]
-
-  for (const key of candidateKeys) {
-    if (Object.prototype.hasOwnProperty.call(values, key)) return values[key]
-  }
-
-  const normalizedName = normalizeSearchText(field.name)
-  const matchedEntry = Object.entries(values).find(([key]) => normalizeSearchText(key) === normalizedName)
-  return matchedEntry?.[1]
 }
 
 const getCustomFieldValueLabel = (field: CustomField, value: unknown) => {
