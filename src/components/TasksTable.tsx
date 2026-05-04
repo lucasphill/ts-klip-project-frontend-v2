@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import React, { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Button,
   Empty,
@@ -31,12 +31,13 @@ import {
 } from '@tanstack/react-table'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import { useAppData, useTheme } from '../contexts/appContexts'
+import { useUserPreference } from '../hooks/useUserPreference'
 import { taskBelongsToProject } from '../lib/klipAdapters'
+import { matchesSearchText, normalizeSearchText } from '../lib/search'
+import { TASK_STATUS_FILTER_OPTIONS, type TaskStatusFilter } from '../types/preferences'
 import type { CustomField, Task } from '../types/domain'
 
 const { Text } = Typography
-
-type TaskStatusFilter = 'all' | 'completed' | 'pending'
 
 type TaskTableRow = Task & {
   depth: number
@@ -46,25 +47,9 @@ type TaskTableRow = Task & {
   hasHiddenParent: boolean
 }
 
-const TASK_STATUS_FILTER_OPTIONS: Array<{ label: string; value: TaskStatusFilter }> = [
-  { label: 'Todas', value: 'all' },
-  { label: 'Concluidas', value: 'completed' },
-  { label: 'Pendentes', value: 'pending' },
-]
-
 const taskTableColumnHelper = createColumnHelper<TaskTableRow>()
 const TASK_TABLE_FIXED_LEFT_COLS = ['done']
 const TASK_TABLE_FIXED_RIGHT_COLS = ['actions']
-
-const normalizeSearchKey = (value: unknown) =>
-  String(value ?? '')
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .replace(/[^a-zA-Z0-9]/g, '')
-    .toLocaleLowerCase('pt-BR')
-
-const matchesSearch = (value: unknown, query: string) =>
-  normalizeSearchKey(value).includes(normalizeSearchKey(query))
 
 const compareText = (left: unknown, right: unknown) =>
   String(left ?? '').localeCompare(String(right ?? ''), 'pt-BR', {
@@ -82,14 +67,14 @@ const getTaskProjectIds = (task: Task) =>
 
 const getCustomFieldValue = (task: Task, field: CustomField) => {
   const values = task.customFieldValues ?? {}
-  const candidateKeys = [field.id, field.name, normalizeSearchKey(field.name)]
+  const candidateKeys = [field.id, field.name, normalizeSearchText(field.name)]
 
   for (const key of candidateKeys) {
     if (Object.prototype.hasOwnProperty.call(values, key)) return values[key]
   }
 
-  const normalizedName = normalizeSearchKey(field.name)
-  const matchedEntry = Object.entries(values).find(([key]) => normalizeSearchKey(key) === normalizedName)
+  const normalizedName = normalizeSearchText(field.name)
+  const matchedEntry = Object.entries(values).find(([key]) => normalizeSearchText(key) === normalizedName)
   return matchedEntry?.[1]
 }
 
@@ -98,7 +83,7 @@ const getCustomFieldValueLabel = (field: CustomField, value: unknown) => {
 
   if (field.type === 'checkbox') {
     if (value === true || value === 'true' || value === 1 || value === '1') return 'Sim'
-    if (value === false || value === 'false' || value === 0 || value === '0') return 'Nao'
+    if (value === false || value === 'false' || value === 0 || value === '0') return 'Não'
     return String(value)
   }
 
@@ -147,16 +132,16 @@ export const TasksTable: React.FC<{
   const { isDark } = useTheme()
   const { token } = antTheme.useToken()
 
-  const [sorting, setSorting] = useState<SortingState>([])
-  const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([])
-  const [globalFilter, setGlobalFilter] = useState('')
+  const [sorting, setSorting] = useUserPreference('taskSorting')
+  const [columnFilters, setColumnFilters] = useUserPreference('taskColumnFilters')
+  const [globalFilter, setGlobalFilter] = useUserPreference('taskGlobalFilter')
   const [columnResizeMode] = useState<ColumnResizeMode>('onChange')
-  const [hoveredRowId, setHoveredRowId] = useState<string | null>(null)
   const [activeFilterCol, setActiveFilterCol] = useState<string | null>(null)
-  const [tableSize, setTableSize] = useState<'compact' | 'default' | 'comfortable'>('default')
-  const [statusFilter, setStatusFilter] = useState<TaskStatusFilter>('all')
+  const [tableSize, setTableSize] = useUserPreference('taskTableSize')
+  const [statusFilter, setStatusFilter] = useUserPreference('taskStatusFilter')
   const [collapsedTaskIds, setCollapsedTaskIds] = useState<string[]>([])
-  const [middleColOrder, setMiddleColOrder] = useState<string[]>([])
+  const [middleColOrder, setMiddleColOrder] = useUserPreference('taskColumnOrder')
+  const deferredGlobalFilter = useDeferredValue(globalFilter)
 
   const projMap = useMemo(
     () => Object.fromEntries(projects.map(project => [project.id, project])),
@@ -168,12 +153,33 @@ export const TasksTable: React.FC<{
     [filterPid, tasks],
   )
 
+  const collapsibleTaskIds = useMemo(() => {
+    const taskIds = new Set(scopedTasks.map(task => task.id))
+    const parentIds = new Set<string>()
+
+    scopedTasks.forEach(task => {
+      const parentTaskId = normalizeParentTaskId(task.parentTaskId)
+      if (parentTaskId && parentTaskId !== task.id && taskIds.has(parentTaskId)) {
+        parentIds.add(parentTaskId)
+      }
+    })
+
+    return parentIds
+  }, [scopedTasks])
+
+  useEffect(() => {
+    setCollapsedTaskIds(previous => {
+      const next = previous.filter(taskId => collapsibleTaskIds.has(taskId))
+      return next.length === previous.length ? previous : next
+    })
+  }, [collapsibleTaskIds])
+
   const activeCustomFields = useMemo(
     () => customFields
       .filter(field => {
         if (field.scope === 'universal') return true
         if (filterPid) return field.projectIds.includes(filterPid)
-        return field.projectIds.length > 0
+        return false
       })
       .sort((left, right) => {
         if (left.scope !== right.scope) return left.scope === 'universal' ? -1 : 1
@@ -204,7 +210,7 @@ export const TasksTable: React.FC<{
     }, 0)
 
     return () => window.clearTimeout(timer)
-  }, [desiredMiddleColOrder])
+  }, [desiredMiddleColOrder, setMiddleColOrder])
 
   const effectiveMiddleColOrder = middleColOrder.length > 0 ? middleColOrder : desiredMiddleColOrder
   const columnOrder = useMemo(
@@ -251,7 +257,7 @@ export const TasksTable: React.FC<{
       .map(([columnId, value]) => [columnId, value.trim()] as const)
       .filter(([, value]) => value.length > 0)
 
-    const normalizedGlobalFilter = globalFilter.trim()
+    const normalizedGlobalFilter = deferredGlobalFilter.trim()
     const hasActiveFilters =
       statusFilter !== 'all' ||
       normalizedGlobalFilter.length > 0 ||
@@ -261,15 +267,15 @@ export const TasksTable: React.FC<{
       if (!completedMatchesFilter(task)) return false
 
       for (const [columnId, value] of activeColumnFilters) {
-        if (columnId === 'title' && !matchesSearch(`${task.title} ${task.description}`, value)) {
+        if (columnId === 'title' && !matchesSearchText(`${task.title} ${task.description}`, value)) {
           return false
         }
 
-        if (columnId === 'project' && !matchesSearch(getProjectLabel(task), value)) {
+        if (columnId === 'project' && !matchesSearchText(getProjectLabel(task), value)) {
           return false
         }
 
-        if (columnId === 'dueDate' && !matchesSearch(getDueDateLabel(task.dueDate), value)) {
+        if (columnId === 'dueDate' && !matchesSearchText(getDueDateLabel(task.dueDate), value)) {
           return false
         }
 
@@ -279,7 +285,7 @@ export const TasksTable: React.FC<{
           if (!field) continue
 
           const fieldValue = getCustomFieldValue(task, field)
-          if (!matchesSearch(getCustomFieldValueLabel(field, fieldValue), value)) {
+          if (!matchesSearchText(getCustomFieldValueLabel(field, fieldValue), value)) {
             return false
           }
         }
@@ -298,7 +304,7 @@ export const TasksTable: React.FC<{
         customFieldText,
       ].join(' ')
 
-      return matchesSearch(searchableText, normalizedGlobalFilter)
+      return matchesSearchText(searchableText, normalizedGlobalFilter)
     }
 
     const matchedTaskIds = hasActiveFilters
@@ -377,7 +383,7 @@ export const TasksTable: React.FC<{
         : allChildren
       const isExpanded =
         visibleChildren.length > 0 &&
-        (!collapsedTaskIdsSet.has(task.id) || ancestorTaskIds.has(task.id))
+        !collapsedTaskIdsSet.has(task.id)
       const parentTaskId = normalizeParentTaskId(task.parentTaskId)
 
       rows.push({
@@ -416,7 +422,7 @@ export const TasksTable: React.FC<{
     collapsedTaskIds,
     columnFilterMap,
     getProjectLabel,
-    globalFilter,
+    deferredGlobalFilter,
     scopedTasks,
     sorting,
     statusFilter,
@@ -443,6 +449,21 @@ export const TasksTable: React.FC<{
     setColumnFilters(previous => {
       const rest = previous.filter(filter => filter.id !== columnId)
       return value ? [...rest, { id: columnId, value }] : rest
+    })
+  }
+
+  const handleColumnFiltersChange = (
+    updaterOrValue: ColumnFiltersState | ((previous: ColumnFiltersState) => ColumnFiltersState),
+  ) => {
+    setColumnFilters(previous => {
+      const nextFilters =
+        typeof updaterOrValue === 'function'
+          ? updaterOrValue(previous as ColumnFiltersState)
+          : updaterOrValue
+
+      return nextFilters
+        .map(filter => ({ id: filter.id, value: String(filter.value ?? '') }))
+        .filter(filter => filter.value.length > 0)
     })
   }
 
@@ -688,9 +709,14 @@ export const TasksTable: React.FC<{
   const table = useReactTable({
     data: rowsData,
     columns,
-    state: { sorting, columnFilters, globalFilter, columnOrder },
+    state: {
+      sorting: sorting as SortingState,
+      columnFilters: columnFilters as ColumnFiltersState,
+      globalFilter,
+      columnOrder,
+    },
     onSortingChange: setSorting,
-    onColumnFiltersChange: setColumnFilters,
+    onColumnFiltersChange: handleColumnFiltersChange,
     onGlobalFilterChange: setGlobalFilter,
     getCoreRowModel: getCoreRowModel(),
     columnResizeMode,
@@ -730,6 +756,15 @@ export const TasksTable: React.FC<{
       }
       .klip-th-resizer:hover,
       .klip-th-resizer.isResizing { background: #6366f1; }
+      .klip-tr {
+        contain: layout paint style;
+      }
+      .klip-tr:hover > td {
+        background: var(--klip-row-hover) !important;
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .klip-th-resizer { transition: none; }
+      }
     `
     document.head.appendChild(style)
   }, [])
@@ -751,6 +786,8 @@ export const TasksTable: React.FC<{
         }}
       >
         <Input
+          id="table-search"
+          name="table-search"
           size="small"
           placeholder="Buscar em tarefas e campos..."
           prefix={<SearchOutlined style={{ color: token.colorTextQuaternary }} />}
@@ -774,8 +811,8 @@ export const TasksTable: React.FC<{
           style={{ width: 120 }}
           options={[
             { label: 'Compacto', value: 'compact' },
-            { label: 'Padrao', value: 'default' },
-            { label: 'Confortavel', value: 'comfortable' },
+            { label: 'Padrão', value: 'default' },
+            { label: 'Confortável', value: 'comfortable' },
           ]}
         />
       </div>
@@ -787,7 +824,8 @@ export const TasksTable: React.FC<{
           overflowY: 'auto',
           overflowX: 'auto',
           minHeight: 0,
-        }}
+          ['--klip-row-hover' as string]: rowHover,
+        } as React.CSSProperties}
       >
         <table
           style={{
@@ -819,6 +857,7 @@ export const TasksTable: React.FC<{
 
                   const filterControl = columnId === 'project' ? (
                     <Select
+                      id={`filter-${columnId}`}
                       size="small"
                       placeholder="Todos"
                       allowClear
@@ -829,6 +868,8 @@ export const TasksTable: React.FC<{
                     />
                   ) : (
                     <Input
+                      id={`filter-${columnId}`}
+                      name={`filter-${columnId}`}
                       size="small"
                       placeholder="Filtrar..."
                       value={getColumnFilter(columnId) ?? ''}
@@ -899,7 +940,7 @@ export const TasksTable: React.FC<{
                             open={activeFilterCol === columnId}
                             onOpenChange={open => setActiveFilterCol(open ? columnId : null)}
                             color={isDark ? '#1f1f1f' : '#fff'}
-                            overlayInnerStyle={{ padding: 8 }}
+                            styles={{ container: { padding: 8 } }}
                           >
                             <button
                               onClick={event => {
@@ -949,18 +990,14 @@ export const TasksTable: React.FC<{
                     const columnId = cell.column.id
                     const isSticky = columnId === 'done'
                     const stickyBg = isSticky
-                      ? hoveredRowId === row.id
-                        ? isDark ? 'rgba(45,45,60,0.95)' : 'rgba(238,238,255,0.95)'
-                        : row.original.status === 'done'
-                          ? isDark ? 'rgba(16,185,129,0.20)' : 'rgba(16,185,129,0.13)'
-                          : isDark ? 'rgba(18,18,24,0.93)' : 'rgba(255,255,255,0.93)'
+                      ? row.original.status === 'done'
+                        ? isDark ? 'rgba(16,185,129,0.20)' : 'rgba(16,185,129,0.13)'
+                        : isDark ? 'rgba(18,18,24,0.93)' : 'rgba(255,255,255,0.93)'
                       : undefined
 
                     return (
                       <td
                         key={cell.id}
-                        onMouseEnter={() => setHoveredRowId(row.id)}
-                        onMouseLeave={() => setHoveredRowId(null)}
                         style={{
                           position: isSticky ? 'sticky' : undefined,
                           left: isSticky ? 0 : undefined,
@@ -972,11 +1009,9 @@ export const TasksTable: React.FC<{
                           boxShadow: isSticky ? `2px 0 8px -2px rgba(0,0,0,0.2)` : undefined,
                           overflow: 'hidden',
                           background: isSticky ? stickyBg : (
-                            hoveredRowId === row.id
-                              ? rowHover
-                              : row.original.status === 'done'
-                                ? isDark ? 'rgba(16,185,129,0.03)' : 'rgba(16,185,129,0.02)'
-                                : row.original.depth > 0 ? subtaskBg : undefined
+                            row.original.status === 'done'
+                              ? isDark ? 'rgba(16,185,129,0.03)' : 'rgba(16,185,129,0.02)'
+                              : row.original.depth > 0 ? subtaskBg : undefined
                           ),
                           backdropFilter: isSticky ? 'blur(10px)' : undefined,
                           WebkitBackdropFilter: isSticky ? 'blur(10px)' : undefined,

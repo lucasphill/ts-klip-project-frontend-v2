@@ -18,11 +18,12 @@ import {
   toApiProjectPayload,
   toApiTaskPayload,
 } from '../lib/klipAdapters'
+import { normalizeSearchText } from '../lib/search'
 import type { CustomField, Project, Task } from '../types/domain'
 import type { CustomFieldValue, GetCustomFieldDefinitionDto, GetTasksWithCustomFieldsDto } from '../types/apiTypes'
 
 type NotificationPayload = {
-  message: string
+  title: string
   description?: string
   placement?: 'topRight'
 }
@@ -42,6 +43,13 @@ type UseKlipDataParams = {
 
 const getErrorMessage = (error: unknown, fallback: string) =>
   error instanceof Error ? error.message : fallback
+
+const hasStoredCustomFieldValue = (values: Record<string, unknown>, field: CustomField) => {
+  const candidateKeys = [field.id, field.name, normalizeSearchText(field.name)]
+
+  return candidateKeys.some(key => Object.prototype.hasOwnProperty.call(values, key)) ||
+    Object.keys(values).some(key => normalizeSearchText(key) === normalizeSearchText(field.name))
+}
 
 export const useKlipData = ({
   notification,
@@ -130,7 +138,7 @@ export const useKlipData = ({
         .catch((error: unknown) => {
           if (!isMounted) return
           notification.error({
-            message: 'Erro ao carregar dados',
+            title: 'Erro ao carregar dados',
             description: getErrorMessage(error, 'Nao foi possivel carregar os dados iniciais.'),
             placement: 'topRight',
           })
@@ -167,6 +175,7 @@ export const useKlipData = ({
     taskId: string,
     values: Record<string, unknown>,
     projectId?: string,
+    existingValues: Record<string, unknown> = {},
   ) => {
     await Promise.all(Object.entries(values).map(async ([fieldId, value]) => {
       const field = customFields.find(item => item.id === fieldId)
@@ -174,11 +183,21 @@ export const useKlipData = ({
 
       const payload = buildCustomFieldValuePayload(taskId, fieldId, field.type, value)
       const scopedProjectId = field.scope === 'project' ? projectId : undefined
+      const hasExistingValue = hasStoredCustomFieldValue(existingValues, field)
 
       try {
-        await customFieldValuesApi.update(payload, scopedProjectId)
-      } catch {
+        if (hasExistingValue) {
+          await customFieldValuesApi.update(payload, scopedProjectId)
+          return
+        }
+
         await customFieldValuesApi.create(payload, scopedProjectId)
+      } catch {
+        if (hasExistingValue) {
+          await customFieldValuesApi.create(payload, scopedProjectId)
+        } else {
+          await customFieldValuesApi.update(payload, scopedProjectId)
+        }
       }
     }))
   }, [customFields])
@@ -209,9 +228,9 @@ export const useKlipData = ({
       }
 
       await loadData()
-      notification.success({ message: 'Tarefa criada', description: `"${data.title}" adicionada.`, placement: 'topRight' })
+      notification.success({ title: 'Tarefa criada', description: `"${data.title}" adicionada.`, placement: 'topRight' })
     } catch (error: unknown) {
-      notification.error({ message: 'Erro ao criar tarefa', description: getErrorMessage(error, 'Tente novamente.'), placement: 'topRight' })
+      notification.error({ title: 'Erro ao criar tarefa', description: getErrorMessage(error, 'Tente novamente.'), placement: 'topRight' })
       throw error
     }
   }, [loadData, notification, syncCustomFieldValues, syncTaskProjects])
@@ -221,12 +240,15 @@ export const useKlipData = ({
     if (!existing) return
 
     if (updates.status && updates.status !== 'todo' && updates.status !== 'done') {
-      notification.warning({ message: 'Em desenvolvimento', description: 'A API ainda nao suporta este status.', placement: 'topRight' })
+      notification.warning({ title: 'Em desenvolvimento', description: 'A API ainda nao suporta este status.', placement: 'topRight' })
       return
     }
 
-    if (updates.priority || updates.assignee) {
-      notification.warning({ message: 'Em desenvolvimento', description: 'Prioridade e responsavel ainda nao possuem suporte na API.', placement: 'topRight' })
+    const unsupportedPriorityChanged = updates.priority !== undefined && updates.priority !== existing.priority
+    const unsupportedAssigneeChanged = updates.assignee !== undefined && updates.assignee !== existing.assignee
+
+    if (unsupportedPriorityChanged || unsupportedAssigneeChanged) {
+      notification.warning({ title: 'Em desenvolvimento', description: 'Prioridade e responsavel ainda nao possuem suporte na API.', placement: 'topRight' })
     }
 
     const merged: Task = {
@@ -247,13 +269,13 @@ export const useKlipData = ({
       await syncTaskProjects(id, existing.projectIds, merged.projectIds)
 
       if (updates.customFieldValues) {
-        await syncCustomFieldValues(id, updates.customFieldValues, merged.projectId)
+        await syncCustomFieldValues(id, updates.customFieldValues, merged.projectId, existing.customFieldValues)
       }
 
       await loadData()
-      notification.success({ message: 'Tarefa atualizada', description: 'Alteracoes salvas com sucesso.', placement: 'topRight' })
+      notification.success({ title: 'Tarefa atualizada', description: 'Alteracoes salvas com sucesso.', placement: 'topRight' })
     } catch (error: unknown) {
-      notification.error({ message: 'Erro ao atualizar tarefa', description: getErrorMessage(error, 'Tente novamente.'), placement: 'topRight' })
+      notification.error({ title: 'Erro ao atualizar tarefa', description: getErrorMessage(error, 'Tente novamente.'), placement: 'topRight' })
       throw error
     }
   }, [loadData, notification, syncCustomFieldValues, syncTaskProjects, tasks])
@@ -263,9 +285,9 @@ export const useKlipData = ({
     try {
       await tasksApi.remove(id)
       await loadData()
-      notification.warning({ message: 'Tarefa removida', description: `"${task?.title ?? 'Tarefa'}" foi removida.`, placement: 'topRight' })
+      notification.warning({ title: 'Tarefa removida', description: `"${task?.title ?? 'Tarefa'}" foi removida.`, placement: 'topRight' })
     } catch (error: unknown) {
-      notification.error({ message: 'Erro ao remover tarefa', description: getErrorMessage(error, 'Tente novamente.'), placement: 'topRight' })
+      notification.error({ title: 'Erro ao remover tarefa', description: getErrorMessage(error, 'Tente novamente.'), placement: 'topRight' })
       throw error
     }
   }, [loadData, notification, tasks])
@@ -280,10 +302,10 @@ export const useKlipData = ({
 
       if (!created) throw new Error('Projeto criado, mas nao localizado no recarregamento.')
 
-      notification.success({ message: 'Projeto criado', description: `"${created.name}" adicionado.`, placement: 'topRight' })
+      notification.success({ title: 'Projeto criado', description: `"${created.name}" adicionado.`, placement: 'topRight' })
       return created
     } catch (error: unknown) {
-      notification.error({ message: 'Erro ao criar projeto', description: getErrorMessage(error, 'Tente novamente.'), placement: 'topRight' })
+      notification.error({ title: 'Erro ao criar projeto', description: getErrorMessage(error, 'Tente novamente.'), placement: 'topRight' })
       throw error
     }
   }, [loadData, notification])
@@ -295,9 +317,9 @@ export const useKlipData = ({
     try {
       await projectsApi.update(id, toApiProjectPayload({ ...existing, ...updates }))
       await loadData()
-      notification.success({ message: 'Projeto atualizado', description: 'Alteracoes salvas.', placement: 'topRight' })
+      notification.success({ title: 'Projeto atualizado', description: 'Alteracoes salvas.', placement: 'topRight' })
     } catch (error: unknown) {
-      notification.error({ message: 'Erro ao atualizar projeto', description: getErrorMessage(error, 'Tente novamente.'), placement: 'topRight' })
+      notification.error({ title: 'Erro ao atualizar projeto', description: getErrorMessage(error, 'Tente novamente.'), placement: 'topRight' })
       throw error
     }
   }, [loadData, notification, projects])
@@ -307,9 +329,9 @@ export const useKlipData = ({
     try {
       await projectsApi.remove(id)
       await loadData()
-      notification.warning({ message: 'Projeto removido', description: `"${project?.name ?? 'Projeto'}" removido.`, placement: 'topRight' })
+      notification.warning({ title: 'Projeto removido', description: `"${project?.name ?? 'Projeto'}" removido.`, placement: 'topRight' })
     } catch (error: unknown) {
-      notification.error({ message: 'Erro ao remover projeto', description: getErrorMessage(error, 'Tente novamente.'), placement: 'topRight' })
+      notification.error({ title: 'Erro ao remover projeto', description: getErrorMessage(error, 'Tente novamente.'), placement: 'topRight' })
       throw error
     }
   }, [loadData, notification, projects])
@@ -327,9 +349,9 @@ export const useKlipData = ({
       }
 
       await loadData()
-      notification.success({ message: 'Campo criado', description: `"${data.name}" adicionado.`, placement: 'topRight' })
+      notification.success({ title: 'Campo criado', description: `"${data.name}" adicionado.`, placement: 'topRight' })
     } catch (error: unknown) {
-      notification.error({ message: 'Erro ao criar campo', description: getErrorMessage(error, 'Tente novamente.'), placement: 'topRight' })
+      notification.error({ title: 'Erro ao criar campo', description: getErrorMessage(error, 'Tente novamente.'), placement: 'topRight' })
       throw error
     }
   }, [findCreatedField, loadData, notification])
@@ -357,9 +379,9 @@ export const useKlipData = ({
       }
 
       await loadData()
-      notification.success({ message: 'Campo atualizado', description: 'Alteracoes salvas.', placement: 'topRight' })
+      notification.success({ title: 'Campo atualizado', description: 'Alteracoes salvas.', placement: 'topRight' })
     } catch (error: unknown) {
-      notification.error({ message: 'Erro ao atualizar campo', description: getErrorMessage(error, 'Tente novamente.'), placement: 'topRight' })
+      notification.error({ title: 'Erro ao atualizar campo', description: getErrorMessage(error, 'Tente novamente.'), placement: 'topRight' })
       throw error
     }
   }, [customFields, loadData, notification])
@@ -369,9 +391,9 @@ export const useKlipData = ({
     try {
       await customFieldDefinitionsApi.remove(id)
       await loadData()
-      notification.warning({ message: 'Campo removido', description: `"${field?.name ?? 'Campo'}" foi removido.`, placement: 'topRight' })
+      notification.warning({ title: 'Campo removido', description: `"${field?.name ?? 'Campo'}" foi removido.`, placement: 'topRight' })
     } catch (error: unknown) {
-      notification.error({ message: 'Erro ao remover campo', description: getErrorMessage(error, 'Tente novamente.'), placement: 'topRight' })
+      notification.error({ title: 'Erro ao remover campo', description: getErrorMessage(error, 'Tente novamente.'), placement: 'topRight' })
       throw error
     }
   }, [customFields, loadData, notification])
@@ -393,7 +415,7 @@ export const useKlipData = ({
       ])
       await loadData()
     } catch (error: unknown) {
-      notification.error({ message: 'Erro ao vincular campos', description: getErrorMessage(error, 'Tente novamente.'), placement: 'topRight' })
+      notification.error({ title: 'Erro ao vincular campos', description: getErrorMessage(error, 'Tente novamente.'), placement: 'topRight' })
       throw error
     }
   }, [customFields, loadData, notification])

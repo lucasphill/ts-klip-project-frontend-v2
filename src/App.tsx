@@ -5,6 +5,7 @@ import React, {
   useMemo,
 } from 'react'
 import dayjs from 'dayjs'
+import 'dayjs/locale/pt-br'
 import {
   App as AntApp,
   Layout,
@@ -35,6 +36,7 @@ import {
   Badge,
   Card,
 } from 'antd'
+import ptBR from 'antd/locale/pt_BR'
 import type { MenuProps, BadgeProps, CalendarProps } from 'antd'
 import {
   SearchOutlined,
@@ -70,21 +72,22 @@ import {
 } from './contexts/appContexts'
 import { useKlipData } from './hooks/useKlipData'
 import { useAppRoute } from './hooks/useAppRoute'
+import { useUserPreference } from './hooks/useUserPreference'
 import { taskBelongsToProject } from './lib/klipAdapters'
 import { getRouteMenuKey } from './lib/routes'
+import { matchesSearchText, normalizeSearchText } from './lib/search'
 import {
-  API_SUPPORTED_STATUSES,
-  PRIORITY_CONFIG,
   PROJECT_COLORS,
-  STATUS_CONFIG,
   getContrastColor,
 } from './constants/ui'
-import type { CustomField, FieldType, Project, Task, TaskPriority, TaskStatus } from './types/domain'
+import type { CustomField, FieldType, Project, Task, TaskStatus } from './types/domain'
 
 const { Header, Content, Footer } = Layout
 const { Text } = Typography
 
-export type { CustomField, FieldType, Project, Task, TaskPriority, TaskStatus }
+dayjs.locale('pt-br')
+
+export type { CustomField, FieldType, Project, Task, TaskStatus }
 
 const LoaderProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [loading, setLoading] = useState(false)
@@ -193,13 +196,22 @@ export const AppLogo: React.FC<{ collapsed: boolean }> = ({ collapsed }) => {
 interface TaskFormValues {
   title: string
   description?: string
-  status: TaskStatus
-  priority: TaskPriority
   projectId?: string
   parentTaskId?: string
   dueDate?: dayjs.Dayjs
   assignee?: string
   customFieldValues?: Record<string, unknown>
+}
+
+const getTaskCustomFieldValue = (values: Record<string, unknown>, field: CustomField) => {
+  const candidateKeys = [field.id, field.name, normalizeSearchText(field.name)]
+
+  for (const key of candidateKeys) {
+    if (Object.prototype.hasOwnProperty.call(values, key)) return values[key]
+  }
+
+  const normalizedName = normalizeSearchText(field.name)
+  return Object.entries(values).find(([key]) => normalizeSearchText(key) === normalizedName)?.[1]
 }
 
 export const TaskDrawer: React.FC<{
@@ -214,15 +226,20 @@ export const TaskDrawer: React.FC<{
   const watchedProjectId = Form.useWatch('projectId', form) as string | undefined
   const selectedProjectId = watchedProjectId ?? defaultProjectId ?? ''
   const projFields = customFields.filter(f => f.scope === 'universal' || f.projectIds.includes(selectedProjectId))
+  const handleClose = useCallback(() => {
+    form.resetFields()
+    onClose()
+  }, [form, onClose])
 
   useEffect(() => {
     if (!open) return
     if (editingTask) {
       const customFieldValues = Object.fromEntries(
-        Object.entries(editingTask.customFieldValues).map(([fieldId, value]) => {
-          const field = customFields.find(item => item.id === fieldId)
-          if (field?.type === 'date' && typeof value === 'string') return [fieldId, dayjs(value)]
-          return [fieldId, value]
+        customFields.flatMap((field) => {
+          const value = getTaskCustomFieldValue(editingTask.customFieldValues ?? {}, field)
+          if (value === undefined) return []
+          if (field.type === 'date' && typeof value === 'string') return [[field.id, dayjs(value)]]
+          return [[field.id, value]]
         }),
       )
 
@@ -235,8 +252,6 @@ export const TaskDrawer: React.FC<{
       form.resetFields()
       const pid = defaultProjectId ?? undefined
       form.setFieldsValue({
-        status: 'todo',
-        priority: 'medium',
         projectId: pid,
         parentTaskId: defaultParentTaskId,
       })
@@ -244,7 +259,8 @@ export const TaskDrawer: React.FC<{
   }, [open, editingTask, defaultProjectId, defaultParentTaskId, customFields, form])
 
   const handleSubmit = async () => {
-    const values = await form.validateFields()
+    const values = await form.validateFields().catch(() => undefined)
+    if (!values) return
     const projectIds = values.projectId ? [values.projectId] : []
     const activeFieldIds = new Set(projFields.map(field => field.id))
     const customFieldValues = Object.fromEntries(
@@ -259,8 +275,8 @@ export const TaskDrawer: React.FC<{
     const processed: Omit<Task, 'id' | 'createdAt' | 'updatedAt'> = {
       title: values.title,
       description: values.description ?? '',
-      status: values.status,
-      priority: 'medium',
+      status: editingTask?.status ?? 'todo',
+      priority: editingTask?.priority ?? 'medium',
       projectId: values.projectId ?? '',
       projectIds,
       parentTaskId: values.parentTaskId || undefined,
@@ -273,18 +289,24 @@ export const TaskDrawer: React.FC<{
     } else {
       await addTask(processed)
     }
-    onClose()
+    handleClose()
   }
 
   return (
     <Drawer
       title={editingTask ? 'Editar Tarefa' : 'Nova Tarefa'}
       open={open}
-      onClose={onClose}
-      width={460}
+      onClose={handleClose}
+      size={460}
+      destroyOnHidden
+      keyboard
+      maskClosable
+      afterOpenChange={(visible) => {
+        if (!visible) form.resetFields()
+      }}
       footer={
         <Space style={{ display: 'flex', justifyContent: 'flex-end' }}>
-          <Button onClick={onClose}>Cancelar</Button>
+          <Button onClick={handleClose}>Cancelar</Button>
           <Button type="primary" onClick={handleSubmit}>
             {editingTask ? 'Salvar alterações' : 'Criar Tarefa'}
           </Button>
@@ -292,45 +314,12 @@ export const TaskDrawer: React.FC<{
       }
     >
       <Form form={form} layout="vertical">
-        <Form.Item name="title" label="Título" rules={[{ required: true, message: 'Informe o título' }]}>
-          <Input placeholder="Título da tarefa" />
+        <Form.Item name="title" label="Título" htmlFor="task-title" rules={[{ required: true, message: 'Informe o título' }]}>
+          <Input id="task-title" name="task-title" autoComplete="off" placeholder="Título da tarefa" />
         </Form.Item>
-        <Form.Item name="description" label="Descrição">
-          <Input.TextArea rows={3} placeholder="Descrição..." />
+        <Form.Item name="description" label="Descrição" htmlFor="task-description">
+          <Input.TextArea id="task-description" name="task-description" autoComplete="off" rows={3} placeholder="Descrição..." />
         </Form.Item>
-        <Row gutter={16}>
-          <Col xs={24} sm={12}>
-            <Form.Item name="status" label="Status" rules={[{ required: true }]}>
-              <Select>
-                {Object.entries(STATUS_CONFIG).map(([k, v]) => {
-                  const status = k as TaskStatus
-                  const supported = API_SUPPORTED_STATUSES.has(status)
-                  return (
-                    <Select.Option key={k} value={k} disabled={!supported}>
-                      <Space size={6}>
-                        {v.label}
-                        {!supported && <Tag style={{ margin: 0 }}>Em desenvolvimento</Tag>}
-                      </Space>
-                    </Select.Option>
-                  )
-                })}
-              </Select>
-            </Form.Item>
-          </Col>
-          <Col xs={24} sm={12}>
-            <Form.Item
-              name="priority"
-              label={<Space size={6}>Prioridade<Tag style={{ margin: 0 }}>Em desenvolvimento</Tag></Space>}
-              rules={[{ required: true }]}
-            >
-              <Select disabled>
-                {Object.entries(PRIORITY_CONFIG).map(([k, v]) => (
-                  <Select.Option key={k} value={k}>{v.label}</Select.Option>
-                ))}
-              </Select>
-            </Form.Item>
-          </Col>
-        </Row>
         <Row gutter={16}>
           <Col xs={24} sm={12}>
             <Form.Item name="projectId" label="Projeto">
@@ -347,8 +336,8 @@ export const TaskDrawer: React.FC<{
             </Form.Item>
           </Col>
           <Col xs={24} sm={12}>
-            <Form.Item name="dueDate" label="Prazo">
-              <DatePicker style={{ width: '100%' }} format="DD/MM/YYYY" />
+            <Form.Item name="dueDate" label="Prazo" htmlFor="task-due-date">
+              <DatePicker id="task-due-date" name="task-due-date" style={{ width: '100%' }} format="DD/MM/YYYY" />
             </Form.Item>
           </Col>
         </Row>
@@ -363,8 +352,8 @@ export const TaskDrawer: React.FC<{
               .map(task => ({ value: task.id, label: task.title }))}
           />
         </Form.Item>
-        <Form.Item name="assignee" label="Responsável">
-          <Input disabled placeholder="Em desenvolvimento" />
+        <Form.Item name="assignee" label="Responsável" htmlFor="task-assignee">
+          <Input id="task-assignee" name="task-assignee" autoComplete="off" disabled placeholder="Em desenvolvimento" />
         </Form.Item>
         {projFields.length > 0 && (
           <>
@@ -375,6 +364,7 @@ export const TaskDrawer: React.FC<{
               <Form.Item
                 key={f.id}
                 name={['customFieldValues', f.id]}
+                htmlFor={`task-custom-field-${f.id}`}
                 label={
                   <Space size={4}>
                     {f.name}
@@ -386,9 +376,9 @@ export const TaskDrawer: React.FC<{
                   </Space>
                 }
               >
-                {f.type === 'text' && <Input />}
+                {f.type === 'text' && <Input id={`task-custom-field-${f.id}`} name={`task-custom-field-${f.id}`} autoComplete="off" />}
                 {f.type === 'number' && <InputNumber style={{ width: '100%' }} />}
-                {f.type === 'date' && <DatePicker style={{ width: '100%' }} format="DD/MM/YYYY" />}
+                {f.type === 'date' && <DatePicker id={`task-custom-field-${f.id}`} name={`task-custom-field-${f.id}`} style={{ width: '100%' }} format="DD/MM/YYYY" />}
                 {f.type === 'checkbox' && (
                   <Select>
                     <Select.Option value="true">Sim</Select.Option>
@@ -418,6 +408,10 @@ export const ProjectDrawer: React.FC<{
 }> = ({ open, onClose, editingProject }) => {
   const { customFields, addProject, updateProject, setProjectFields } = useAppData()
   const [form] = Form.useForm()
+  const handleClose = useCallback(() => {
+    form.resetFields()
+    onClose()
+  }, [form, onClose])
 
   useEffect(() => {
     if (!open) return
@@ -435,7 +429,8 @@ export const ProjectDrawer: React.FC<{
   }, [open, editingProject, form, customFields])
 
   const handleSubmit = async () => {
-    const values = await form.validateFields()
+    const values = await form.validateFields().catch(() => undefined)
+    if (!values) return
     if (editingProject) {
       await updateProject(editingProject.id, {
         name: values.name,
@@ -451,18 +446,24 @@ export const ProjectDrawer: React.FC<{
       })
       await setProjectFields(newProj.id, values.cfIds ?? [])
     }
-    onClose()
+    handleClose()
   }
 
   return (
     <Drawer
       title={editingProject ? 'Editar Projeto' : 'Novo Projeto'}
       open={open}
-      onClose={onClose}
-      width={440}
+      onClose={handleClose}
+      size={440}
+      destroyOnHidden
+      keyboard
+      maskClosable
+      afterOpenChange={(visible) => {
+        if (!visible) form.resetFields()
+      }}
       footer={
         <Space style={{ display: 'flex', justifyContent: 'flex-end' }}>
-          <Button onClick={onClose}>Cancelar</Button>
+          <Button onClick={handleClose}>Cancelar</Button>
           <Button type="primary" onClick={handleSubmit}>
             {editingProject ? 'Salvar alterações' : 'Criar Projeto'}
           </Button>
@@ -470,11 +471,11 @@ export const ProjectDrawer: React.FC<{
       }
     >
       <Form form={form} layout="vertical">
-        <Form.Item name="name" label="Nome do Projeto" rules={[{ required: true, message: 'Informe o nome' }]}>
-          <Input placeholder="ex: Frontend v2" />
+        <Form.Item name="name" label="Nome do Projeto" htmlFor="project-name" rules={[{ required: true, message: 'Informe o nome' }]}>
+          <Input id="project-name" name="project-name" autoComplete="off" placeholder="ex: Frontend v2" />
         </Form.Item>
-        <Form.Item name="description" label="Descrição">
-          <Input.TextArea rows={3} placeholder="Descreva o projeto..." />
+        <Form.Item name="description" label="Descrição" htmlFor="project-description">
+          <Input.TextArea id="project-description" name="project-description" autoComplete="off" rows={3} placeholder="Descreva o projeto..." />
         </Form.Item>
         <Form.Item
           name="color"
@@ -601,6 +602,177 @@ const TaskEditProvider: React.FC<{ children: React.ReactNode }> = ({ children })
   )
 }
 
+type GlobalSearchResult =
+  | { type: 'task'; id: string; label: string; description: string; task: Task; projectId?: string }
+  | { type: 'project'; id: string; label: string; description: string; project: Project }
+
+const GlobalSearchInput: React.FC<{
+  query: string
+  onQueryChange: (query: string) => void
+  projects: Project[]
+  tasks: Task[]
+  isDark: boolean
+  border: string
+  navigate: ReturnType<typeof useAppRoute>['navigate']
+  openEditTask: ReturnType<typeof useTaskEdit>['openEditTask']
+  setTaskGlobalFilter: (query: string) => void
+}> = ({ query, onQueryChange, projects, tasks, isDark, border, navigate, openEditTask, setTaskGlobalFilter }) => {
+  const [focused, setFocused] = useState(false)
+  const trimmedQuery = query.trim()
+  const projectById = useMemo(
+    () => new Map(projects.map(project => [project.id, project])),
+    [projects],
+  )
+
+  const results = useMemo<GlobalSearchResult[]>(() => {
+    if (!trimmedQuery) return []
+
+    const taskResults = tasks
+      .filter(task => {
+        const project = projectById.get(task.projectId) ?? task.projectIds.map(id => projectById.get(id)).find(Boolean)
+        return [
+          task.title,
+          task.description,
+          project?.name,
+          project?.description,
+        ].some(value => matchesSearchText(value, trimmedQuery))
+      })
+      .slice(0, 5)
+      .map(task => {
+        const projectId = task.projectId || task.projectIds[0]
+        const project = projectId ? projectById.get(projectId) : undefined
+        return {
+          type: 'task' as const,
+          id: task.id,
+          label: task.title,
+          description: project?.name ? `Tarefa · ${project.name}` : 'Tarefa',
+          task,
+          projectId,
+        }
+      })
+
+    const projectResults = projects
+      .filter(project => matchesSearchText(`${project.name} ${project.description}`, trimmedQuery))
+      .slice(0, 5)
+      .map(project => ({
+        type: 'project' as const,
+        id: project.id,
+        label: project.name,
+        description: 'Projeto',
+        project,
+      }))
+
+    return [...taskResults, ...projectResults]
+  }, [projectById, projects, tasks, trimmedQuery])
+
+  const selectResult = useCallback((result: GlobalSearchResult) => {
+    setFocused(false)
+    if (result.type === 'project') {
+      navigate({ view: 'project', projectId: result.project.id })
+      return
+    }
+
+    if (result.projectId) {
+      navigate({ view: 'project', projectId: result.projectId })
+    } else {
+      navigate({ view: 'tasks' })
+    }
+    openEditTask(result.task)
+  }, [navigate, openEditTask])
+
+  const handleEnter = useCallback(() => {
+    if (!trimmedQuery) return
+    const firstResult = results[0]
+    if (firstResult) {
+      selectResult(firstResult)
+      return
+    }
+
+    setTaskGlobalFilter(trimmedQuery)
+    navigate({ view: 'tasks' })
+    setFocused(false)
+  }, [navigate, results, selectResult, setTaskGlobalFilter, trimmedQuery])
+
+  const showDropdown = focused && trimmedQuery.length > 0
+
+  return (
+    <div style={{ flex: 1, maxWidth: 420, position: 'relative', zIndex: 1 }}>
+      <Input
+        id="global-search"
+        name="global-search"
+        aria-label="Pesquisar tarefas e projetos"
+        autoComplete="off"
+        prefix={<SearchOutlined style={{ color: isDark ? 'rgba(255,255,255,0.3)' : 'rgba(0,0,0,0.25)' }} />}
+        placeholder="Pesquisar tarefas, projetos..."
+        value={query}
+        onChange={e => onQueryChange(e.target.value)}
+        onFocus={() => setFocused(true)}
+        onBlur={() => window.setTimeout(() => setFocused(false), 120)}
+        onPressEnter={handleEnter}
+        allowClear
+        style={{
+          width: '100%',
+          background: isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.04)',
+          border: `1px solid ${border}`,
+          borderRadius: 8,
+        }}
+      />
+      {showDropdown && (
+        <div
+          role="listbox"
+          aria-label="Resultados da busca global"
+          onMouseDown={event => event.preventDefault()}
+          style={{
+            position: 'absolute',
+            zIndex: 3000,
+            top: 'calc(100% + 6px)',
+            left: 0,
+            right: 0,
+            padding: 6,
+            borderRadius: 10,
+            border: `1px solid ${border}`,
+            background: isDark ? '#181818' : '#ffffff',
+            boxShadow: isDark ? '0 16px 40px rgba(0,0,0,0.55)' : '0 16px 40px rgba(15,23,42,0.16)',
+          }}
+        >
+          {results.length === 0 ? (
+            <div style={{ padding: '10px 12px' }}>
+              <Text type="secondary" style={{ fontSize: 12 }}>Nenhum resultado</Text>
+            </div>
+          ) : (
+            results.map(result => (
+              <button
+                key={`${result.type}-${result.id}`}
+                type="button"
+                role="option"
+                onClick={() => selectResult(result)}
+                style={{
+                  width: '100%',
+                  border: 0,
+                  borderRadius: 8,
+                  background: 'transparent',
+                  color: isDark ? '#f5f5f5' : '#1f2937',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: 2,
+                  padding: '9px 10px',
+                  textAlign: 'left',
+                }}
+              >
+                <span style={{ fontSize: 13, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {result.label}
+                </span>
+                <span style={{ fontSize: 11, opacity: 0.62 }}>{result.description}</span>
+              </button>
+            ))
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ─── CALENDAR VIEW ────────────────────────────────────────────────────────────
 
 export const CalendarView: React.FC = () => {
@@ -705,7 +877,7 @@ export const UserSettingsView: React.FC = () => {
         </div>
         <div style={{ padding: 16 }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <Space direction="vertical" size={0}>
+            <Space orientation="vertical" size={0}>
               <Text style={{ fontSize: 13 }}>Tema</Text>
               <Text type="secondary" style={{ fontSize: 12 }}>{isDark ? 'Modo escuro ativado' : 'Modo claro ativado'}</Text>
             </Space>
@@ -732,16 +904,16 @@ export const UserSettingsView: React.FC = () => {
         <div style={{ padding: 16 }}>
           <Space size={24} align="start">
             <Avatar size={72} icon={<UserOutlined />} style={{ background: '#6366f1', flexShrink: 0 }} />
-            <Form layout="vertical" style={{ flex: 1 }}>
+            <Form layout="vertical" style={{ flex: 1 }} name="profile-settings-form">
               <Row gutter={16}>
                 <Col xs={24} sm={12}>
-                  <Form.Item label="Nome completo">
-                    <Input disabled placeholder="Em desenvolvimento" />
+                  <Form.Item label="Nome completo" htmlFor="profile-full-name">
+                    <Input id="profile-full-name" name="profile-full-name" autoComplete="name" disabled placeholder="Em desenvolvimento" />
                   </Form.Item>
                 </Col>
                 <Col xs={24} sm={12}>
-                  <Form.Item label="E-mail">
-                    <Input disabled placeholder="Em desenvolvimento" />
+                  <Form.Item label="E-mail" htmlFor="profile-email">
+                    <Input id="profile-email" name="profile-email" autoComplete="email" disabled placeholder="Em desenvolvimento" />
                   </Form.Item>
                 </Col>
               </Row>
@@ -760,19 +932,18 @@ export const UserSettingsView: React.FC = () => {
           </Space>
         </div>
         <div style={{ padding: 16 }}>
-          <Space direction="vertical" style={{ width: '100%' }} size={16}>
+          <Space orientation="vertical" style={{ width: '100%' }} size={16}>
             {[
-              { icon: <GithubOutlined />, label: 'GitHub', connected: true },
-              { icon: <GlobalOutlined />, label: 'Google', connected: false },
-              { icon: <LinkOutlined />, label: 'Microsoft', connected: false },
+              { icon: <GithubOutlined />, label: 'GitHub' },
+              { icon: <GlobalOutlined />, label: 'Google' },
+              { icon: <LinkOutlined />, label: 'Microsoft' },
             ].map(item => (
               <div key={item.label} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                 <Space>
                   {item.icon}
                   <Text>{item.label}</Text>
-                  {item.connected && <Tag color="success">Conectado</Tag>}
                 </Space>
-                <Button size="small" disabled>{item.connected ? 'Desvincular' : 'Vincular'}</Button>
+                <Button size="small" disabled>Vincular</Button>
               </div>
             ))}
           </Space>
@@ -808,7 +979,7 @@ export const UserSettingsView: React.FC = () => {
           </Space>
         </div>
         <div style={{ padding: 16 }}>
-          <Form layout="vertical" disabled>
+          <Form layout="vertical" disabled name="llm-settings-form">
             <Row gutter={16}>
               <Col xs={24} sm={12}>
                 <Form.Item label="Provedor">
@@ -829,11 +1000,11 @@ export const UserSettingsView: React.FC = () => {
                 </Form.Item>
               </Col>
             </Row>
-            <Form.Item label="Chave de API">
-              <Input.Password placeholder="sk-..." />
+            <Form.Item label="Chave de API" htmlFor="llm-api-key">
+              <Input.Password id="llm-api-key" name="llm-api-key" autoComplete="new-password" placeholder="sk-..." />
             </Form.Item>
-            <Form.Item label="Prompt de sistema (opcional)">
-              <Input.TextArea rows={3} placeholder="Você é um assistente de gestão de projetos..." />
+            <Form.Item label="Prompt de sistema (opcional)" htmlFor="llm-system-prompt">
+              <Input.TextArea id="llm-system-prompt" name="llm-system-prompt" autoComplete="off" rows={3} placeholder="Você é um assistente de gestão de projetos..." />
             </Form.Item>
             <Button type="primary" icon={<RobotOutlined />} disabled>Salvar configurações de LLM</Button>
           </Form>
@@ -854,14 +1025,28 @@ export const UserSettingsView: React.FC = () => {
 export const CustomFieldsSettingsView: React.FC = () => {
   const { isDark } = useTheme()
   const { customFields, projects, addCustomField, updateCustomField, deleteCustomField } = useAppData()
-  const cardBg = isDark ? '#1e1e1e' : '#fff'
-  const border = isDark ? '#3a3a3a' : '#f0f0f0'
+  const cardBg = isDark ? 'rgba(22,22,22,0.85)' : 'rgba(255,255,255,0.72)'
+  const border = isDark ? '#3a3a3a' : 'rgba(0,0,0,0.08)'
+  const fieldTypeLabels: Record<FieldType, string> = {
+    text: 'Texto',
+    number: 'Número',
+    date: 'Data',
+    checkbox: 'Checkbox',
+    select: 'Seleção',
+  }
 
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [editingField, setEditingField] = useState<CustomField | null>(null)
   const [form] = Form.useForm()
   const [scopeVal, setScopeVal] = useState<'universal' | 'project'>('project')
   const [typeVal, setTypeVal] = useState<FieldType>('text')
+  const closeDrawer = useCallback(() => {
+    setDrawerOpen(false)
+    setEditingField(null)
+    setScopeVal('project')
+    setTypeVal('text')
+    form.resetFields()
+  }, [form])
 
   const openNew = () => {
     setEditingField(null)
@@ -903,8 +1088,8 @@ export const CustomFieldsSettingsView: React.FC = () => {
       } else {
         addCustomField(payload)
       }
-      setDrawerOpen(false)
-    })
+      closeDrawer()
+    }).catch(() => undefined)
   }
 
   const columns = [
@@ -913,7 +1098,7 @@ export const CustomFieldsSettingsView: React.FC = () => {
       title: 'Tipo',
       dataIndex: 'type',
       key: 'type',
-      render: (v: string) => <Tag>{v}</Tag>,
+      render: (v: FieldType) => <Tag>{fieldTypeLabels[v]}</Tag>,
     },
     {
       title: 'Escopo',
@@ -950,29 +1135,56 @@ export const CustomFieldsSettingsView: React.FC = () => {
   ]
 
   return (
-    <div style={{ maxWidth: 900, margin: '0 auto' }}>
-      <Card
-        title="Campos Personalizados"
-        style={{ background: cardBg, border: `1px solid ${border}` }}
-        extra={<Button type="primary" onClick={openNew}>Novo campo</Button>}
-      >
-        <Table
-          dataSource={customFields}
-          columns={columns}
-          rowKey="id"
-          size="middle"
-          pagination={false}
-        />
-      </Card>
+    <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 16 }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+        <Space orientation="vertical" size={0}>
+          <Text strong style={{ fontSize: 18 }}>Campos Personalizados</Text>
+          <Text type="secondary" style={{ fontSize: 12 }}>
+            Defina campos universais ou vinculados aos projetos para organizar as tarefas.
+          </Text>
+        </Space>
+        <Button type="primary" icon={<DatabaseOutlined />} onClick={openNew}>
+          Novo campo
+        </Button>
+      </div>
+
+      <div style={{ background: cardBg, border: `1px solid ${border}`, minHeight: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+        <div style={{ height: 44, padding: '0 16px', borderBottom: `1px solid ${border}`, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0 }}>
+          <Space size={8}>
+            <Text strong style={{ fontSize: 13 }}>Biblioteca de campos</Text>
+            <Tag style={{ margin: 0 }}>{customFields.length}</Tag>
+          </Space>
+          <Text type="secondary" style={{ fontSize: 12 }}>
+            {customFields.filter(field => field.scope === 'universal').length} universais · {customFields.filter(field => field.scope === 'project').length} por projeto
+          </Text>
+        </div>
+        <div style={{ minHeight: 0, overflow: 'auto' }}>
+          <Table
+            dataSource={customFields}
+            columns={columns}
+            rowKey="id"
+            size="small"
+            pagination={false}
+            scroll={{ x: 720 }}
+            locale={{ emptyText: <Empty description="Nenhum campo personalizado" /> }}
+          />
+        </div>
+      </div>
 
       <Drawer
         title={editingField ? 'Editar campo' : 'Novo campo'}
         open={drawerOpen}
-        onClose={() => setDrawerOpen(false)}
-        width={440}
+        onClose={closeDrawer}
+        size={440}
+        destroyOnHidden
+        keyboard
+        maskClosable
+        afterOpenChange={(visible) => {
+          if (!visible) form.resetFields()
+        }}
         footer={
           <Space style={{ display: 'flex', justifyContent: 'flex-end' }}>
-            <Button onClick={() => setDrawerOpen(false)}>Cancelar</Button>
+            <Button onClick={closeDrawer}>Cancelar</Button>
             <Button type="primary" onClick={handleSave}>
               {editingField ? 'Salvar alterações' : 'Criar campo'}
             </Button>
@@ -980,8 +1192,8 @@ export const CustomFieldsSettingsView: React.FC = () => {
         }
       >
         <Form form={form} layout="vertical">
-          <Form.Item name="name" label="Nome" rules={[{ required: true, message: 'Informe o nome' }]}>
-            <Input placeholder="ex: Story Points" />
+          <Form.Item name="name" label="Nome" htmlFor="custom-field-name" rules={[{ required: true, message: 'Informe o nome' }]}>
+            <Input id="custom-field-name" name="custom-field-name" autoComplete="off" placeholder="ex: Story Points" />
           </Form.Item>
           <Form.Item name="type" label="Tipo" rules={[{ required: true }]}>
             <Select onChange={(v) => setTypeVal(v as FieldType)}>
@@ -996,9 +1208,10 @@ export const CustomFieldsSettingsView: React.FC = () => {
             <Form.Item
               name="options"
               label="Opções (uma por linha)"
+              htmlFor="custom-field-options"
               rules={[{ required: true, message: 'Adicione pelo menos uma opção' }]}
             >
-              <Input.TextArea rows={4} placeholder={"Opção 1\nOpção 2\nOpção 3"} />
+              <Input.TextArea id="custom-field-options" name="custom-field-options" autoComplete="off" rows={4} placeholder={"Opção 1\nOpção 2\nOpção 3"} />
             </Form.Item>
           )}
           <Form.Item name="scope" label="Escopo" rules={[{ required: true }]}>
@@ -1036,7 +1249,7 @@ const ProjectsOverview: React.FC<{
   return (
     <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 16 }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
-        <Space direction="vertical" size={0}>
+        <Space orientation="vertical" size={0}>
           <Text strong style={{ fontSize: 18 }}>Projetos</Text>
           <Text type="secondary" style={{ fontSize: 12 }}>Abra um projeto para ver suas tarefas em uma URL dedicada.</Text>
         </Space>
@@ -1108,12 +1321,13 @@ const MainApp: React.FC = () => {
   const { openEditTask } = useTaskEdit()
   const { route, navigate } = useAppRoute()
 
-  const [siderWidth, setSiderWidth] = useState(240)
-  const [collapsed, setCollapsed] = useState(false)
-  const [openKeys, setOpenKeys] = useState<string[]>(['projects'])
+  const [siderWidth, setSiderWidth] = useUserPreference('sidebarWidth')
+  const [collapsed, setCollapsed] = useUserPreference('sidebarCollapsed')
+  const [openKeys, setOpenKeys] = useUserPreference('sidebarOpenKeys')
   const [projOpen, setProjOpen] = useState(false)
   const [editingProj, setEditingProj] = useState<Project | null>(null)
-  const [searchQuery, setSearchQuery] = useState('')
+  const [searchQuery, setSearchQuery] = useUserPreference('workspaceSearchQuery')
+  const [, setTaskGlobalFilter] = useUserPreference('taskGlobalFilter')
   const filterPid = route.view === 'project' ? route.projectId : undefined
   const currentProject = projects.find(p => p.id === filterPid)
   const selectedMenuKey = getRouteMenuKey(route)
@@ -1141,7 +1355,7 @@ const MainApp: React.FC = () => {
     }, 0)
 
     return () => window.clearTimeout(timer)
-  }, [collapsed, route.view])
+  }, [collapsed, route.view, setOpenKeys])
 
   const COLLAPSED_W = 64
   const MIN_SIDER_W = 200
@@ -1345,21 +1559,20 @@ const MainApp: React.FC = () => {
               justifyContent: 'space-between',
               flexShrink: 0,
               gap: 12,
+              position: 'relative',
+              zIndex: 30,
               ...glass,
             }}>
-              <Input
-                prefix={<SearchOutlined style={{ color: isDark ? 'rgba(255,255,255,0.3)' : 'rgba(0,0,0,0.25)' }} />}
-                placeholder="Pesquisar tarefas, projetos..."
-                value={searchQuery}
-                onChange={e => setSearchQuery(e.target.value)}
-                allowClear
-                style={{
-                  flex: 1,
-                  maxWidth: 420,
-                  background: isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.04)',
-                  border: `1px solid ${border}`,
-                  borderRadius: 8,
-                }}
+              <GlobalSearchInput
+                query={searchQuery}
+                onQueryChange={setSearchQuery}
+                projects={projects}
+                tasks={tasks}
+                isDark={isDark}
+                border={border}
+                navigate={navigate}
+                openEditTask={openEditTask}
+                setTaskGlobalFilter={setTaskGlobalFilter}
               />
               <Space size={4} style={{ flexShrink: 0 }}>
                 <Tooltip title="Minha conta">
@@ -1402,6 +1615,32 @@ const MainApp: React.FC = () => {
                       />
                     </div>
                   ) : null}
+                  {!filterPid && (
+                    <div
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        gap: 12,
+                        marginBottom: 16,
+                        flexShrink: 0,
+                      }}
+                    >
+                      <Space orientation="vertical" size={0}>
+                        <Text strong style={{ fontSize: 18 }}>Todas as Tarefas</Text>
+                        <Text type="secondary" style={{ fontSize: 12 }}>
+                          Visualize tarefas, subtarefas e campos universais em uma única lista.
+                        </Text>
+                      </Space>
+                      <Button
+                        type="primary"
+                        icon={<DatabaseOutlined />}
+                        onClick={() => navigate({ view: 'settings-fields' })}
+                      >
+                        Campos Personalizados
+                      </Button>
+                    </div>
+                  )}
                   <div style={{
                     flex: 1,
                     display: 'flex',
@@ -1421,7 +1660,7 @@ const MainApp: React.FC = () => {
                       flexShrink: 0,
                     }}>
                       <Text strong style={{ fontSize: 13 }}>
-                        {filterPid ? `Tarefas — ${currentProject?.name}` : 'Todas as Tarefas'}
+                        {filterPid ? `Tarefas — ${currentProject?.name}` : 'Lista de tarefas'}
                       </Text>
                       {filterPid && (
                         <Button type="text" size="small" onClick={() => navigate({ view: 'tasks' })}>
@@ -1471,14 +1710,26 @@ const MainApp: React.FC = () => {
 // ─── THEME WRAPPER ────────────────────────────────────────────────────────────
 
 const ThemeWrapper: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [isDark, setIsDark] = useState(false)
-  const toggle = useCallback(() => setIsDark(v => !v), [])
+  const [themePreference, setThemePreference] = useUserPreference('theme')
+  const isDark = themePreference === 'dark'
+  const toggle = useCallback(() => {
+    setThemePreference(currentTheme => currentTheme === 'dark' ? 'light' : 'dark')
+  }, [setThemePreference])
+
+  useEffect(() => {
+    document.documentElement.dataset.theme = themePreference
+    document.documentElement.style.colorScheme = themePreference
+  }, [themePreference])
 
   return (
     <ThemeContext.Provider value={{ isDark, toggle }}>
       <ConfigProvider
+        locale={ptBR}
+        getPopupContainer={(triggerNode) =>
+          (triggerNode?.closest('.ant-drawer, .ant-modal') as HTMLElement | null) ?? document.body
+        }
         theme={{
-          cssVar: { key: 'klip' },
+          cssVar: { key: `klip-${themePreference}` },
           algorithm: isDark ? antTheme.darkAlgorithm : antTheme.defaultAlgorithm,
           token: {
             colorPrimary: '#6366f1',

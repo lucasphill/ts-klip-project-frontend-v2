@@ -1,0 +1,9 @@
+# Klip
+
+Klip is a task and project management application.
+
+- [Application home](/)
+- [Tasks](/tasks)
+- [Projects](/projects)
+- [Calendar](/calendar)
+- [Settings](/settings/user)

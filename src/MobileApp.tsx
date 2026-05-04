@@ -5,6 +5,7 @@ import {
   Drawer,
   Empty,
   FloatButton,
+  Segmented,
   Space,
   Tag,
   Typography,
@@ -24,7 +25,6 @@ import {
   CalendarView,
   UserSettingsView,
   CustomFieldsSettingsView,
-  TaskDrawer,
   ProjectDrawer,
 } from './App'
 import { useAppData, useTaskEdit, useTheme } from './contexts/appContexts'
@@ -32,6 +32,8 @@ import { PRIORITY_CONFIG, STATUS_CONFIG } from './constants/ui'
 import type { Project, Task } from './types/domain'
 import { taskBelongsToProject } from './lib/klipAdapters'
 import { useAppRoute } from './hooks/useAppRoute'
+import { useUserPreference } from './hooks/useUserPreference'
+import { TASK_STATUS_FILTER_OPTIONS, type TaskStatusFilter } from './types/preferences'
 
 const { Text } = Typography
 
@@ -120,26 +122,49 @@ const MobileTaskList: React.FC<{ filterPid?: string }> = ({ filterPid }) => {
   const { tasks } = useAppData()
   const { openEditTask } = useTaskEdit()
   const { isDark } = useTheme()
+  const [statusFilter, setStatusFilter] = useUserPreference('taskStatusFilter')
   const border = isDark ? '#3a3a3a' : '#f0f0f0'
 
-  const filtered = useMemo(() =>
-    filterPid ? tasks.filter(t => taskBelongsToProject(t, filterPid)) : tasks,
-    [tasks, filterPid]
-  )
+  const filtered = useMemo(() => {
+    const scopedTasks = filterPid ? tasks.filter(t => taskBelongsToProject(t, filterPid)) : tasks
+
+    if (statusFilter === 'completed') return scopedTasks.filter(task => task.status === 'done')
+    if (statusFilter === 'pending') return scopedTasks.filter(task => task.status !== 'done')
+
+    return scopedTasks
+  }, [filterPid, statusFilter, tasks])
 
   if (!filtered.length) {
     return (
-      <div style={{ padding: 40, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-        <Empty description="Nenhuma tarefa" />
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        <Segmented
+          size="small"
+          value={statusFilter}
+          onChange={value => setStatusFilter(value as TaskStatusFilter)}
+          options={TASK_STATUS_FILTER_OPTIONS}
+          block
+        />
+        <div style={{ padding: 40, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <Empty description="Nenhuma tarefa" />
+        </div>
       </div>
     )
   }
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 1, border: `1px solid ${border}` }}>
-      {filtered.map(task => (
-        <TaskCard key={task.id} task={task} onEdit={openEditTask} />
-      ))}
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+      <Segmented
+        size="small"
+        value={statusFilter}
+        onChange={value => setStatusFilter(value as TaskStatusFilter)}
+        options={TASK_STATUS_FILTER_OPTIONS}
+        block
+      />
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 1, border: `1px solid ${border}` }}>
+        {filtered.map(task => (
+          <TaskCard key={task.id} task={task} onEdit={openEditTask} />
+        ))}
+      </div>
     </div>
   )
 }
@@ -221,6 +246,7 @@ const MobileSettingsView: React.FC<{
   const { isDark } = useTheme()
   const border = isDark ? '#3a3a3a' : '#f0f0f0'
   const headerBg = isDark ? '#161616' : '#fafafa'
+  const activeSectionColor = isDark ? '#8b8df8' : '#6366f1'
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
@@ -242,14 +268,14 @@ const MobileSettingsView: React.FC<{
               flex: 1,
               padding: '12px 8px',
               border: 'none',
-              borderBottom: section === item.key ? '2px solid #6366f1' : '2px solid transparent',
+              borderBottom: section === item.key ? `2px solid ${activeSectionColor}` : '2px solid transparent',
               background: 'transparent',
               cursor: 'pointer',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
               gap: 6,
-              color: section === item.key ? '#6366f1' : (isDark ? 'rgba(255,255,255,0.55)' : 'rgba(0,0,0,0.45)'),
+              color: section === item.key ? activeSectionColor : (isDark ? 'rgba(255,255,255,0.55)' : 'rgba(0,0,0,0.45)'),
               fontSize: 13,
               fontWeight: section === item.key ? 600 : 400,
               transition: 'color 0.2s',
@@ -288,8 +314,7 @@ const MobileApp: React.FC = () => {
   const [projDrawerOpen, setProjDrawerOpen] = useState(false)
   const [projOpen, setProjOpen] = useState(false)
   const [editingProj, setEditingProj] = useState<Project | null>(null)
-  const [taskDrawerOpen, setTaskDrawerOpen] = useState(false)
-  const [editingTask, setEditingTask] = useState<Task | null>(null)
+  const { openEditTask } = useTaskEdit()
   const activeTab: TabKey =
     route.view === 'projects' ? 'projects' :
       route.view === 'calendar' ? 'calendar' :
@@ -304,16 +329,10 @@ const MobileApp: React.FC = () => {
     ? 'linear-gradient(160deg, #1c1c1c 0%, #0d0d0d 100%)'
     : 'radial-gradient(ellipse at 20% 20%, #dcdcf4 0%, #f2f2fb 60%)'
   const tabBarBg = isDark ? 'rgba(16,16,16,0.97)' : 'rgba(255,255,255,0.97)'
-  const activeColor = '#6366f1'
+  const activeColor = isDark ? '#8b8df8' : '#6366f1'
   const inactiveColor = isDark ? 'rgba(255,255,255,0.45)' : 'rgba(0,0,0,0.35)'
 
   const currentProject = projects.find(p => p.id === filterPid)
-
-  const openEdit = (task: Task | null, pid?: string) => {
-    setEditingTask(task)
-    setTaskDrawerOpen(true)
-    if (pid) navigate({ view: 'project', projectId: pid })
-  }
 
   const handleSelectProject = (pid: string) => {
     navigate({ view: 'project', projectId: pid })
@@ -369,7 +388,7 @@ const MobileApp: React.FC = () => {
       </div>
 
       {/* ── CONTENT ── */}
-      <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
+      <main style={{ flex: 1, minHeight: 0, overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
         {activeTab === 'tasks' && (
           <div style={{ padding: 12, display: 'flex', flexDirection: 'column', gap: 8, flex: 1 }}>
             <div style={{
@@ -412,7 +431,7 @@ const MobileApp: React.FC = () => {
             onSectionChange={(section) => navigate({ view: section === 'user' ? 'settings-user' : 'settings-fields' })}
           />
         )}
-      </div>
+      </main>
 
       {/* ── BOTTOM TAB BAR ── */}
       <div style={{
@@ -465,18 +484,11 @@ const MobileApp: React.FC = () => {
           type="primary"
           style={{ bottom: 80, right: 20 }}
           tooltip="Nova Tarefa"
-          onClick={() => openEdit(null, filterPid)}
+          onClick={() => openEditTask(null, filterPid)}
         />
       )}
 
       {/* ── DRAWERS ── */}
-      <TaskDrawer
-        open={taskDrawerOpen}
-        onClose={() => { setTaskDrawerOpen(false); setEditingTask(null) }}
-        editingTask={editingTask}
-        defaultProjectId={filterPid}
-      />
-
       <ProjectDrawer
         open={projOpen}
         onClose={() => { setProjOpen(false); setEditingProj(null) }}
@@ -489,7 +501,7 @@ const MobileApp: React.FC = () => {
         open={projDrawerOpen}
         onClose={() => setProjDrawerOpen(false)}
         placement="left"
-        width={260}
+        size={260}
       >
         <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
           <button
