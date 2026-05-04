@@ -134,14 +134,28 @@ export const TasksTable: React.FC<{
 
   const [sorting, setSorting] = useUserPreference('taskSorting')
   const [columnFilters, setColumnFilters] = useUserPreference('taskColumnFilters')
-  const [globalFilter, setGlobalFilter] = useUserPreference('taskGlobalFilter')
+  const [globalFilter, setGlobalFilterPreference] = useUserPreference('taskGlobalFilter')
+  const [globalFilterInput, setGlobalFilterInput] = useState(globalFilter)
   const [columnResizeMode] = useState<ColumnResizeMode>('onChange')
   const [activeFilterCol, setActiveFilterCol] = useState<string | null>(null)
   const [tableSize, setTableSize] = useUserPreference('taskTableSize')
   const [statusFilter, setStatusFilter] = useUserPreference('taskStatusFilter')
   const [collapsedTaskIds, setCollapsedTaskIds] = useState<string[]>([])
   const [middleColOrder, setMiddleColOrder] = useUserPreference('taskColumnOrder')
-  const deferredGlobalFilter = useDeferredValue(globalFilter)
+  const deferredGlobalFilterInput = useDeferredValue(globalFilterInput)
+  const deferredGlobalFilter = deferredGlobalFilterInput
+
+  useEffect(() => {
+    setGlobalFilterInput(globalFilter)
+  }, [globalFilter])
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      if (globalFilterInput !== globalFilter) setGlobalFilterPreference(globalFilterInput)
+    }, 250)
+
+    return () => window.clearTimeout(timer)
+  }, [globalFilter, globalFilterInput, setGlobalFilterPreference])
 
   const projMap = useMemo(
     () => Object.fromEntries(projects.map(project => [project.id, project])),
@@ -186,6 +200,10 @@ export const TasksTable: React.FC<{
         return compareText(left.name, right.name)
       }),
     [customFields, filterPid],
+  )
+  const activeCustomFieldByColumnId = useMemo(
+    () => new Map(activeCustomFields.map(field => [`cf-${field.id}`, field])),
+    [activeCustomFields],
   )
 
   const desiredMiddleColOrder = useMemo(
@@ -280,8 +298,7 @@ export const TasksTable: React.FC<{
         }
 
         if (columnId.startsWith('cf-')) {
-          const fieldId = columnId.slice(3)
-          const field = activeCustomFields.find(item => item.id === fieldId)
+          const field = activeCustomFieldByColumnId.get(columnId)
           if (!field) continue
 
           const fieldValue = getCustomFieldValue(task, field)
@@ -357,8 +374,7 @@ export const TasksTable: React.FC<{
       }
 
       if (sortDescriptor.id.startsWith('cf-')) {
-        const fieldId = sortDescriptor.id.slice(3)
-        const field = activeCustomFields.find(item => item.id === fieldId)
+        const field = activeCustomFieldByColumnId.get(sortDescriptor.id)
         if (!field) return 0
 
         const leftValue = getCustomFieldValueLabel(field, getCustomFieldValue(left, field))
@@ -418,6 +434,7 @@ export const TasksTable: React.FC<{
 
     return rows
   }, [
+    activeCustomFieldByColumnId,
     activeCustomFields,
     collapsedTaskIds,
     columnFilterMap,
@@ -430,9 +447,12 @@ export const TasksTable: React.FC<{
 
   const rowHeight = tableSize === 'compact' ? 36 : tableSize === 'comfortable' ? 56 : 44
   const border = isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.07)'
-  const headerBg = isDark ? 'rgba(255,255,255,0.03)' : token.colorBgLayout
+  const headerBg = isDark ? '#171717' : '#ffffff'
+  const headerShadow = isDark ? '0 8px 18px rgba(0,0,0,0.34)' : '0 8px 18px rgba(15,23,42,0.10)'
+  const bodyBg = isDark ? '#121212' : '#ffffff'
+  const doneBg = isDark ? '#12251d' : '#f6fffb'
+  const childBg = isDark ? '#171717' : '#fafafa'
   const rowHover = isDark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.025)'
-  const subtaskBg = isDark ? 'rgba(255,255,255,0.018)' : 'rgba(0,0,0,0.012)'
 
   const toggleTaskCollapsed = useCallback((taskId: string) => {
     setCollapsedTaskIds(previous =>
@@ -488,7 +508,7 @@ export const TasksTable: React.FC<{
     return [
       taskTableColumnHelper.accessor('status', {
         id: 'done',
-        header: '',
+        header: () => <span className="klip-sr-only">Concluída</span>,
         size: 52,
         minSize: 52,
         maxSize: 52,
@@ -498,12 +518,13 @@ export const TasksTable: React.FC<{
           const isDone = task.status === 'done'
 
           return (
-            <Tooltip title={isDone ? 'Marcar como pendente' : 'Marcar como concluida'} placement="right">
+            <Tooltip title={isDone ? 'Marcar como pendente' : 'Marcar como concluída'} placement="right">
               <button
+                aria-label={`${isDone ? 'Marcar como pendente' : 'Marcar como concluída'}: ${task.title}`}
                 onClick={() => { void updateTask(task.id, { status: isDone ? 'todo' : 'done' }) }}
                 style={{
-                  width: 20,
-                  height: 20,
+                  width: 24,
+                  height: 24,
                   borderRadius: '50%',
                   border: 'none',
                   background: 'transparent',
@@ -556,6 +577,7 @@ export const TasksTable: React.FC<{
                   type="text"
                   size="small"
                   icon={task.isExpanded ? <DownOutlined /> : <RightOutlined />}
+                  aria-label={`${task.isExpanded ? 'Recolher' : 'Expandir'} subtarefas de ${task.title}`}
                   onClick={event => {
                     event.stopPropagation()
                     toggleTaskCollapsed(task.id)
@@ -565,13 +587,21 @@ export const TasksTable: React.FC<{
               ) : (
                 <span style={{ width: 22, minWidth: 22 }} />
               )}
-              <div
+              <button
+                type="button"
+                aria-label={`Editar ${task.title}`}
                 onClick={() => onEdit(task)}
                 style={{
                   opacity: isDone ? 0.48 : 1,
+                  border: 0,
+                  background: 'transparent',
+                  color: 'inherit',
+                  font: 'inherit',
                   minWidth: 0,
                   overflow: 'hidden',
                   cursor: 'pointer',
+                  padding: 0,
+                  textAlign: 'left',
                 }}
               >
                 <Space size={6} style={{ minWidth: 0, maxWidth: '100%' }}>
@@ -606,7 +636,7 @@ export const TasksTable: React.FC<{
                     {task.description}
                   </Text>
                 )}
-              </div>
+              </button>
             </div>
           )
         },
@@ -663,6 +693,7 @@ export const TasksTable: React.FC<{
       ...customFieldColumns,
       taskTableColumnHelper.display({
         id: 'actions',
+        header: () => <span className="klip-sr-only">Ações</span>,
         size: 104,
         minSize: 104,
         maxSize: 104,
@@ -673,10 +704,10 @@ export const TasksTable: React.FC<{
           return (
             <Space size={2} className="row-actions">
               <Tooltip title="Editar">
-                <Button type="text" size="small" icon={<EditOutlined />} onClick={() => onEdit(task)} />
+                <Button type="text" size="small" icon={<EditOutlined />} aria-label={`Editar ${task.title}`} onClick={() => onEdit(task)} />
               </Tooltip>
               <Tooltip title="Adicionar subtarefa">
-                <Button type="text" size="small" icon={<PlusOutlined />} onClick={() => onAddSubtask(task)} />
+                <Button type="text" size="small" icon={<PlusOutlined />} aria-label={`Adicionar subtarefa em ${task.title}`} onClick={() => onAddSubtask(task)} />
               </Tooltip>
               <Tooltip title="Remover">
                 <Button
@@ -684,6 +715,7 @@ export const TasksTable: React.FC<{
                   size="small"
                   danger
                   icon={<DeleteOutlined />}
+                  aria-label={`Remover ${task.title}`}
                   onClick={() => { void deleteTask(task.id) }}
                 />
               </Tooltip>
@@ -712,12 +744,12 @@ export const TasksTable: React.FC<{
     state: {
       sorting: sorting as SortingState,
       columnFilters: columnFilters as ColumnFiltersState,
-      globalFilter,
+      globalFilter: deferredGlobalFilter,
       columnOrder,
     },
     onSortingChange: setSorting,
     onColumnFiltersChange: handleColumnFiltersChange,
-    onGlobalFilterChange: setGlobalFilter,
+    onGlobalFilterChange: setGlobalFilterInput,
     getCoreRowModel: getCoreRowModel(),
     columnResizeMode,
     enableColumnResizing: true,
@@ -742,6 +774,10 @@ export const TasksTable: React.FC<{
       : 0
 
   useEffect(() => {
+    virtualizer.measure()
+  }, [rowHeight, rows.length, virtualizer])
+
+  useEffect(() => {
     const id = 'klip-table-v2-styles'
     if (document.getElementById(id)) return
     const style = document.createElement('style')
@@ -762,6 +798,17 @@ export const TasksTable: React.FC<{
       .klip-tr:hover > td {
         background: var(--klip-row-hover) !important;
       }
+      .klip-sr-only {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        padding: 0;
+        margin: -1px;
+        overflow: hidden;
+        clip: rect(0, 0, 0, 0);
+        white-space: nowrap;
+        border: 0;
+      }
       @media (prefers-reduced-motion: reduce) {
         .klip-th-resizer { transition: none; }
       }
@@ -770,7 +817,7 @@ export const TasksTable: React.FC<{
   }, [])
 
   const tableWidth = Math.max(table.getCenterTotalSize(), 780)
-  const hasFilters = columnFilters.length > 0 || globalFilter.trim().length > 0 || statusFilter !== 'all'
+  const hasFilters = columnFilters.length > 0 || globalFilterInput.trim().length > 0 || statusFilter !== 'all'
 
   return (
     <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0, overflow: 'hidden' }}>
@@ -791,12 +838,14 @@ export const TasksTable: React.FC<{
           size="small"
           placeholder="Buscar em tarefas e campos..."
           prefix={<SearchOutlined style={{ color: token.colorTextQuaternary }} />}
-          value={globalFilter}
-          onChange={event => setGlobalFilter(event.target.value)}
+          value={globalFilterInput}
+          onChange={event => setGlobalFilterInput(event.target.value)}
+          onBlur={() => setGlobalFilterPreference(globalFilterInput)}
           allowClear
           style={{ width: 240 }}
         />
         <Select
+          aria-label="Filtrar tarefas por status"
           size="small"
           value={statusFilter}
           onChange={(value: TaskStatusFilter) => setStatusFilter(value)}
@@ -805,6 +854,7 @@ export const TasksTable: React.FC<{
         />
         <div style={{ flex: 1 }} />
         <Select
+          aria-label="Densidade da tabela"
           size="small"
           value={tableSize}
           onChange={setTableSize}
@@ -828,10 +878,12 @@ export const TasksTable: React.FC<{
         } as React.CSSProperties}
       >
         <table
+          aria-label="Tabela de tarefas"
           style={{
             width: tableWidth,
             minWidth: '100%',
-            borderCollapse: 'collapse',
+            borderCollapse: 'separate',
+            borderSpacing: 0,
             tableLayout: 'fixed',
           }}
         >
@@ -840,23 +892,42 @@ export const TasksTable: React.FC<{
               <col key={header.id} style={{ width: header.getSize() }} />
             ))}
           </colgroup>
-          <thead style={{ position: 'sticky', top: 0, zIndex: 2 }}>
+          <thead style={{ position: 'sticky', top: 0, zIndex: 8, background: headerBg, boxShadow: headerShadow }}>
             {table.getHeaderGroups().map(headerGroup => (
               <tr key={headerGroup.id}>
                 {headerGroup.headers.map(header => {
                   const columnId = header.column.id
                   const canSort = header.column.getCanSort()
                   const sortDirection = header.column.getIsSorted()
-                  const isSticky = columnId === 'done'
+                  const isLeftSticky = columnId === 'done' || columnId === 'title'
+                  const isRightSticky = columnId === 'actions'
+                  const stickyLeft = columnId === 'done'
+                    ? 0
+                    : columnId === 'title'
+                      ? table.getColumn('done')?.getSize() ?? 52
+                      : undefined
                   const isFilterable =
                     columnId === 'title' ||
                     columnId === 'project' ||
                     columnId === 'dueDate' ||
                     columnId.startsWith('cf-')
                   const hasColumnFilter = Boolean(getColumnFilter(columnId))
+                  const accessibleColumnLabel =
+                    columnId === 'done'
+                      ? 'Concluída'
+                      : columnId === 'title'
+                        ? 'Tarefa'
+                        : columnId === 'project'
+                          ? 'Projeto'
+                          : columnId === 'dueDate'
+                            ? 'Prazo'
+                            : columnId === 'actions'
+                              ? 'Ações'
+                              : activeCustomFieldByColumnId.get(columnId)?.name ?? 'Campo personalizado'
 
                   const filterControl = columnId === 'project' ? (
                     <Select
+                      aria-label={`Filtrar ${accessibleColumnLabel}`}
                       id={`filter-${columnId}`}
                       size="small"
                       placeholder="Todos"
@@ -868,6 +939,7 @@ export const TasksTable: React.FC<{
                     />
                   ) : (
                     <Input
+                      aria-label={`Filtrar ${accessibleColumnLabel}`}
                       id={`filter-${columnId}`}
                       name={`filter-${columnId}`}
                       size="small"
@@ -883,16 +955,27 @@ export const TasksTable: React.FC<{
                   return (
                     <th
                       key={header.id}
+                      scope="col"
+                      aria-sort={sortDirection === 'asc' ? 'ascending' : sortDirection === 'desc' ? 'descending' : undefined}
                       style={{
-                        position: isSticky ? 'sticky' : 'relative',
-                        left: isSticky ? 0 : undefined,
-                        zIndex: isSticky ? 4 : undefined,
+                        position: 'sticky',
+                        top: 0,
+                        left: isLeftSticky ? stickyLeft : undefined,
+                        right: isRightSticky ? 0 : undefined,
+                        zIndex: isLeftSticky || isRightSticky ? 11 : 9,
                         height: 38,
                         padding: '0 10px',
                         background: headerBg,
+                        backgroundClip: 'padding-box',
                         borderBottom: `2px solid ${border}`,
                         borderRight: `1px solid ${border}`,
-                        boxShadow: isSticky ? `2px 0 8px -2px rgba(0,0,0,0.2)` : undefined,
+                        boxShadow: columnId === 'title'
+                          ? `4px 0 12px -6px rgba(0,0,0,0.35), ${headerShadow}`
+                          : isRightSticky
+                            ? `-4px 0 12px -6px rgba(0,0,0,0.35), ${headerShadow}`
+                            : columnId === 'done'
+                              ? `2px 0 8px -4px rgba(0,0,0,0.30), ${headerShadow}`
+                              : undefined,
                         fontSize: 12,
                         fontWeight: 600,
                         color: token.colorTextSecondary,
@@ -905,12 +988,14 @@ export const TasksTable: React.FC<{
                       <div style={{ display: 'flex', alignItems: 'center', gap: 4, minWidth: 0 }}>
                         {canSort ? (
                           <button
+                            aria-label={`Ordenar por ${accessibleColumnLabel}`}
                             onClick={header.column.getToggleSortingHandler()}
                             style={{
                               background: 'none',
                               border: 'none',
                               cursor: 'pointer',
-                              padding: 0,
+                              minHeight: 24,
+                              padding: '2px 0',
                               display: 'flex',
                               alignItems: 'center',
                               gap: 3,
@@ -943,6 +1028,7 @@ export const TasksTable: React.FC<{
                             styles={{ container: { padding: 8 } }}
                           >
                             <button
+                              aria-label={`Filtrar ${accessibleColumnLabel}`}
                               onClick={event => {
                                 event.stopPropagation()
                                 setActiveFilterCol(activeFilterCol === columnId ? null : columnId)
@@ -951,9 +1037,13 @@ export const TasksTable: React.FC<{
                                 background: 'none',
                                 border: 'none',
                                 cursor: 'pointer',
-                                padding: '0 2px',
+                                width: 24,
+                                height: 24,
+                                minWidth: 24,
+                                padding: 0,
                                 display: 'flex',
                                 alignItems: 'center',
+                                justifyContent: 'center',
                                 color: hasColumnFilter ? token.colorPrimary : token.colorTextQuaternary,
                                 fontSize: 11,
                               }}
@@ -988,33 +1078,39 @@ export const TasksTable: React.FC<{
                 <tr key={row.id} className="klip-tr">
                   {row.getVisibleCells().map(cell => {
                     const columnId = cell.column.id
-                    const isSticky = columnId === 'done'
-                    const stickyBg = isSticky
-                      ? row.original.status === 'done'
-                        ? isDark ? 'rgba(16,185,129,0.20)' : 'rgba(16,185,129,0.13)'
-                        : isDark ? 'rgba(18,18,24,0.93)' : 'rgba(255,255,255,0.93)'
-                      : undefined
+                    const isLeftSticky = columnId === 'done' || columnId === 'title'
+                    const isRightSticky = columnId === 'actions'
+                    const stickyLeft = columnId === 'done'
+                      ? 0
+                      : columnId === 'title'
+                        ? table.getColumn('done')?.getSize() ?? 52
+                        : undefined
+                    const cellBg = row.original.status === 'done'
+                      ? doneBg
+                      : row.original.depth > 0 ? childBg : bodyBg
 
                     return (
                       <td
                         key={cell.id}
                         style={{
-                          position: isSticky ? 'sticky' : undefined,
-                          left: isSticky ? 0 : undefined,
-                          zIndex: isSticky ? 1 : undefined,
+                          position: isLeftSticky || isRightSticky ? 'sticky' : undefined,
+                          left: isLeftSticky ? stickyLeft : undefined,
+                          right: isRightSticky ? 0 : undefined,
+                          zIndex: isLeftSticky || isRightSticky ? 3 : undefined,
                           height: rowHeight,
                           padding: '0 10px',
                           borderBottom: `1px solid ${border}`,
                           borderRight: `1px solid ${border}`,
-                          boxShadow: isSticky ? `2px 0 8px -2px rgba(0,0,0,0.2)` : undefined,
+                          boxShadow: columnId === 'title'
+                            ? '4px 0 12px -6px rgba(0,0,0,0.35)'
+                            : isRightSticky
+                              ? '-4px 0 12px -6px rgba(0,0,0,0.35)'
+                              : columnId === 'done'
+                                ? '2px 0 8px -4px rgba(0,0,0,0.30)'
+                                : undefined,
                           overflow: 'hidden',
-                          background: isSticky ? stickyBg : (
-                            row.original.status === 'done'
-                              ? isDark ? 'rgba(16,185,129,0.03)' : 'rgba(16,185,129,0.02)'
-                              : row.original.depth > 0 ? subtaskBg : undefined
-                          ),
-                          backdropFilter: isSticky ? 'blur(10px)' : undefined,
-                          WebkitBackdropFilter: isSticky ? 'blur(10px)' : undefined,
+                          background: cellBg,
+                          backgroundClip: 'padding-box',
                           transition: 'background 0.1s',
                           verticalAlign: 'middle',
                         }}
@@ -1069,7 +1165,8 @@ export const TasksTable: React.FC<{
             style={{ fontSize: 11, padding: 0, height: 'auto' }}
             onClick={() => {
               setColumnFilters([])
-              setGlobalFilter('')
+              setGlobalFilterInput('')
+              setGlobalFilterPreference('')
               setStatusFilter('all')
             }}
           >

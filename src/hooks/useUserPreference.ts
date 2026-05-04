@@ -40,6 +40,8 @@ export const useUserPreference = <K extends keyof UserPreferences>(
 
   const updateValue = useCallback<Dispatch<SetStateAction<UserPreferences[K]>>>((action) => {
     const nextValue = resolveStateAction(action, valueRef.current)
+    if (Object.is(nextValue, valueRef.current)) return
+
     valueRef.current = nextValue
     setValue(nextValue)
     writeUserPreferencesPatch({ [key]: nextValue } as Partial<UserPreferences>)

@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react'
+import React, { useState, useMemo, useRef, useCallback } from 'react'
 import {
   Badge,
   Button,
@@ -34,8 +34,12 @@ import { taskBelongsToProject } from './lib/klipAdapters'
 import { useAppRoute } from './hooks/useAppRoute'
 import { useUserPreference } from './hooks/useUserPreference'
 import { TASK_STATUS_FILTER_OPTIONS, type TaskStatusFilter } from './types/preferences'
+import { useVirtualizer } from '@tanstack/react-virtual'
 
 const { Text } = Typography
+
+const MOBILE_TASK_ITEM_HEIGHT = 118
+const MOBILE_TASK_OVERSCAN = 4
 
 // ─── LOGO SVG ─────────────────────────────────────────────────────────────────
 
@@ -48,39 +52,65 @@ const KlipLogoSvg: React.FC = () => (
 
 // ─── TASK CARD ────────────────────────────────────────────────────────────────
 
-const TaskCard: React.FC<{ task: Task; onEdit: (t: Task) => void }> = ({ task, onEdit }) => {
+const TaskCard = React.memo<{
+  task: Task
+  project?: Project
+  onEdit: (task: Task) => void
+  onDelete: (taskId: string) => void
+}>(({ task, project, onEdit, onDelete }) => {
   const { isDark } = useTheme()
-  const { projects, deleteTask } = useAppData()
   const border = isDark ? '#3a3a3a' : '#f0f0f0'
   const bg = isDark ? '#1e1e1e' : '#fff'
-  const project = projects.find(p => p.id === task.projectId)
+  const secondaryTextColor = isDark ? 'rgba(255,255,255,0.68)' : '#595959'
   const statusCfg = STATUS_CONFIG[task.status]
   const priorityCfg = PRIORITY_CONFIG[task.priority]
 
   return (
     <div
       style={{
+        height: MOBILE_TASK_ITEM_HEIGHT - 1,
+        boxSizing: 'border-box',
         background: bg,
         border: `1px solid ${border}`,
         padding: '12px 14px',
         display: 'flex',
         flexDirection: 'column',
         gap: 6,
+        overflow: 'hidden',
       }}
     >
-      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 8 }}>
-        <Text
-          strong
-          style={{ fontSize: 14, flex: 1, cursor: 'pointer', lineHeight: '1.4' }}
+      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 8, minWidth: 0 }}>
+        <button
+          type="button"
+          aria-label={`Abrir detalhes de ${task.title}`}
           onClick={() => onEdit(task)}
+          style={{
+            flex: 1,
+            minWidth: 0,
+            border: 0,
+            background: 'transparent',
+            color: 'inherit',
+            cursor: 'pointer',
+            font: 'inherit',
+            fontSize: 14,
+            fontWeight: 700,
+            lineHeight: 1.4,
+            padding: 0,
+            textAlign: 'left',
+            display: '-webkit-box',
+            WebkitLineClamp: 2,
+            WebkitBoxOrient: 'vertical',
+            overflow: 'hidden',
+          }}
         >
           {task.title}
-        </Text>
+        </button>
         <Space size={4} style={{ flexShrink: 0 }}>
           <Button
             type="text"
             size="small"
             icon={<EditOutlined />}
+            aria-label={`Editar ${task.title}`}
             onClick={() => onEdit(task)}
             style={{ padding: '0 4px' }}
           />
@@ -89,7 +119,8 @@ const TaskCard: React.FC<{ task: Task; onEdit: (t: Task) => void }> = ({ task, o
             size="small"
             danger
             icon={<DeleteOutlined />}
-            onClick={() => { void deleteTask(task.id) }}
+            aria-label={`Remover ${task.title}`}
+            onClick={() => onDelete(task.id)}
             style={{ padding: '0 4px' }}
           />
         </Space>
@@ -103,27 +134,37 @@ const TaskCard: React.FC<{ task: Task; onEdit: (t: Task) => void }> = ({ task, o
         <Tag color={priorityCfg.color} style={{ fontSize: 11, margin: 0 }}>{priorityCfg.label}</Tag>
       </div>
 
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-        <Space size={4}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0, overflow: 'hidden' }}>
+        <Space size={4} style={{ minWidth: 0, overflow: 'hidden' }}>
           {project && <span style={{ display: 'inline-block', width: 8, height: 8, background: project.color, flexShrink: 0 }} />}
-          <Text type="secondary" style={{ fontSize: 12 }}>{project?.name ?? 'Sem projeto'}</Text>
+          <Text style={{ fontSize: 12, color: secondaryTextColor, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{project?.name ?? 'Sem projeto'}</Text>
         </Space>
         {task.dueDate && (
-          <Text type="secondary" style={{ fontSize: 12 }}>· {task.dueDate}</Text>
+          <Text style={{ fontSize: 12, color: secondaryTextColor }}>· {task.dueDate}</Text>
         )}
       </div>
     </div>
   )
-}
+})
+
+TaskCard.displayName = 'TaskCard'
 
 // ─── MOBILE TASK LIST ─────────────────────────────────────────────────────────
 
 const MobileTaskList: React.FC<{ filterPid?: string }> = ({ filterPid }) => {
-  const { tasks } = useAppData()
+  const { tasks, projects, deleteTask } = useAppData()
   const { openEditTask } = useTaskEdit()
   const { isDark } = useTheme()
   const [statusFilter, setStatusFilter] = useUserPreference('taskStatusFilter')
   const border = isDark ? '#3a3a3a' : '#f0f0f0'
+  const scrollRef = useRef<HTMLDivElement>(null)
+  const projectById = useMemo(
+    () => new Map(projects.map(project => [project.id, project])),
+    [projects],
+  )
+  const handleDeleteTask = useCallback((taskId: string) => {
+    void deleteTask(taskId)
+  }, [deleteTask])
 
   const filtered = useMemo(() => {
     const scopedTasks = filterPid ? tasks.filter(t => taskBelongsToProject(t, filterPid)) : tasks
@@ -133,10 +174,18 @@ const MobileTaskList: React.FC<{ filterPid?: string }> = ({ filterPid }) => {
 
     return scopedTasks
   }, [filterPid, statusFilter, tasks])
+  // eslint-disable-next-line react-hooks/incompatible-library
+  const virtualizer = useVirtualizer({
+    count: filtered.length,
+    getScrollElement: () => scrollRef.current,
+    estimateSize: () => MOBILE_TASK_ITEM_HEIGHT,
+    overscan: MOBILE_TASK_OVERSCAN,
+  })
+  const virtualItems = virtualizer.getVirtualItems()
 
   if (!filtered.length) {
     return (
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8, flex: 1, minHeight: 0 }}>
         <Segmented
           size="small"
           value={statusFilter}
@@ -152,7 +201,7 @@ const MobileTaskList: React.FC<{ filterPid?: string }> = ({ filterPid }) => {
   }
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 8, flex: 1, minHeight: 0 }}>
       <Segmented
         size="small"
         value={statusFilter}
@@ -160,10 +209,47 @@ const MobileTaskList: React.FC<{ filterPid?: string }> = ({ filterPid }) => {
         options={TASK_STATUS_FILTER_OPTIONS}
         block
       />
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 1, border: `1px solid ${border}` }}>
-        {filtered.map(task => (
-          <TaskCard key={task.id} task={task} onEdit={openEditTask} />
-        ))}
+      <div
+        ref={scrollRef}
+        style={{
+          flex: 1,
+          minHeight: 0,
+          overflowY: 'auto',
+          border: `1px solid ${border}`,
+          contain: 'layout paint style',
+        }}
+      >
+        <div style={{ height: virtualizer.getTotalSize(), position: 'relative' }}>
+          {virtualItems.map(virtualItem => {
+            const task = filtered[virtualItem.index]
+            if (!task) return null
+
+            return (
+              <div
+                key={task.id}
+                data-index={virtualItem.index}
+                style={{
+                  position: 'absolute',
+                  top: 0,
+                  left: 0,
+                  width: '100%',
+                  height: MOBILE_TASK_ITEM_HEIGHT,
+                  transform: `translateY(${virtualItem.start}px)`,
+                  paddingBottom: 1,
+                  boxSizing: 'border-box',
+                  contain: 'layout paint style',
+                }}
+              >
+                <TaskCard
+                  task={task}
+                  project={projectById.get(task.projectId)}
+                  onEdit={openEditTask}
+                  onDelete={handleDeleteTask}
+                />
+              </div>
+            )
+          })}
+        </div>
       </div>
     </div>
   )
@@ -219,16 +305,29 @@ const MobileProjectsList: React.FC<{
             <span
               style={{ display: 'inline-block', width: 12, height: 12, background: p.color, borderRadius: 3, flexShrink: 0 }}
             />
-            <div style={{ flex: 1, cursor: 'pointer' }} onClick={() => onSelectProject(p.id)}>
+            <button
+              type="button"
+              aria-label={`Abrir projeto ${p.name}`}
+              onClick={() => onSelectProject(p.id)}
+              style={{
+                flex: 1,
+                border: 0,
+                background: 'transparent',
+                color: 'inherit',
+                cursor: 'pointer',
+                padding: 0,
+                textAlign: 'left',
+              }}
+            >
               <Text strong style={{ fontSize: 14 }}>{p.name}</Text>
               {p.description && (
                 <Text type="secondary" style={{ fontSize: 12, display: 'block' }}>{p.description}</Text>
               )}
-            </div>
+            </button>
             <Text type="secondary" style={{ fontSize: 12, flexShrink: 0 }}>{count} tarefas</Text>
             <Space size={2}>
-              <Button type="text" size="small" icon={<EditOutlined />} onClick={() => onEditProject(p)} />
-              <Button type="text" size="small" danger icon={<DeleteOutlined />} onClick={() => { void deleteProject(p.id) }} />
+              <Button type="text" size="small" icon={<EditOutlined />} aria-label={`Editar ${p.name}`} onClick={() => onEditProject(p)} />
+              <Button type="text" size="small" danger icon={<DeleteOutlined />} aria-label={`Excluir ${p.name}`} onClick={() => { void deleteProject(p.id) }} />
             </Space>
           </div>
         )
@@ -246,7 +345,7 @@ const MobileSettingsView: React.FC<{
   const { isDark } = useTheme()
   const border = isDark ? '#3a3a3a' : '#f0f0f0'
   const headerBg = isDark ? '#161616' : '#fafafa'
-  const activeSectionColor = isDark ? '#8b8df8' : '#6366f1'
+  const activeSectionColor = isDark ? '#8b8df8' : '#4f46e5'
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
@@ -275,7 +374,7 @@ const MobileSettingsView: React.FC<{
               alignItems: 'center',
               justifyContent: 'center',
               gap: 6,
-              color: section === item.key ? activeSectionColor : (isDark ? 'rgba(255,255,255,0.55)' : 'rgba(0,0,0,0.45)'),
+              color: section === item.key ? activeSectionColor : (isDark ? 'rgba(255,255,255,0.68)' : '#595959'),
               fontSize: 13,
               fontWeight: section === item.key ? 600 : 400,
               transition: 'color 0.2s',
@@ -329,8 +428,8 @@ const MobileApp: React.FC = () => {
     ? 'linear-gradient(160deg, #1c1c1c 0%, #0d0d0d 100%)'
     : 'radial-gradient(ellipse at 20% 20%, #dcdcf4 0%, #f2f2fb 60%)'
   const tabBarBg = isDark ? 'rgba(16,16,16,0.97)' : 'rgba(255,255,255,0.97)'
-  const activeColor = isDark ? '#8b8df8' : '#6366f1'
-  const inactiveColor = isDark ? 'rgba(255,255,255,0.45)' : 'rgba(0,0,0,0.35)'
+  const activeColor = isDark ? '#8b8df8' : '#4f46e5'
+  const inactiveColor = isDark ? 'rgba(255,255,255,0.68)' : 'rgba(0,0,0,0.62)'
 
   const currentProject = projects.find(p => p.id === filterPid)
 
@@ -364,20 +463,40 @@ const MobileApp: React.FC = () => {
         flexShrink: 0,
         gap: 8,
       }}>
-        <KlipLogoSvg />
-        <div style={{ flex: 1, lineHeight: 1.2, overflow: 'hidden' }}>
-          <div style={{ fontWeight: 700, fontSize: 14, letterSpacing: '-0.3px', color: isDark ? '#fff' : '#1a1a1a', whiteSpace: 'nowrap' }}>
-            Klip
-          </div>
-          {activeTab === 'tasks' && filterPid && (
-            <div style={{ fontSize: 11, color: currentProject?.color ?? '#6366f1', fontWeight: 500, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-              {currentProject?.name}
+        <button
+          type="button"
+          aria-label="Klip - Ir para a página inicial"
+          onClick={() => navigate({ view: 'tasks' })}
+          style={{
+            flex: 1,
+            minWidth: 0,
+            border: 0,
+            background: 'transparent',
+            color: 'inherit',
+            padding: 0,
+            display: 'flex',
+            alignItems: 'center',
+            gap: 8,
+            textAlign: 'left',
+            cursor: 'pointer',
+          }}
+        >
+          <KlipLogoSvg />
+          <div style={{ flex: 1, lineHeight: 1.2, overflow: 'hidden' }}>
+            <div style={{ fontWeight: 700, fontSize: 14, letterSpacing: '-0.3px', color: isDark ? '#fff' : '#1a1a1a', whiteSpace: 'nowrap' }}>
+              Klip
             </div>
-          )}
-        </div>
+            {activeTab === 'tasks' && filterPid && (
+              <div style={{ fontSize: 11, color: currentProject?.color ?? '#4f46e5', fontWeight: 500, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                {currentProject?.name}
+              </div>
+            )}
+          </div>
+        </button>
 
         <Space size={4}>
           <Button
+            aria-label="Minha conta"
             type="text"
             size="small"
             icon={<UserOutlined style={{ fontSize: 15 }} />}
@@ -390,7 +509,7 @@ const MobileApp: React.FC = () => {
       {/* ── CONTENT ── */}
       <main style={{ flex: 1, minHeight: 0, overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
         {activeTab === 'tasks' && (
-          <div style={{ padding: 12, display: 'flex', flexDirection: 'column', gap: 8, flex: 1 }}>
+          <div style={{ padding: 12, display: 'flex', flexDirection: 'column', gap: 8, flex: 1, minHeight: 0, overflow: 'hidden' }}>
             <div style={{
               padding: '8px 12px',
               borderBottom: `1px solid ${border}`,
@@ -421,7 +540,7 @@ const MobileApp: React.FC = () => {
 
         {activeTab === 'calendar' && (
           <div style={{ flex: 1, minHeight: 0, padding: 12, display: 'flex', flexDirection: 'column' }}>
-            <CalendarView />
+            <CalendarView compact />
           </div>
         )}
 
@@ -501,7 +620,7 @@ const MobileApp: React.FC = () => {
         open={projDrawerOpen}
         onClose={() => setProjDrawerOpen(false)}
         placement="left"
-        size={260}
+        size="min(86vw, 280px)"
       >
         <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
           <button
@@ -510,10 +629,10 @@ const MobileApp: React.FC = () => {
               padding: '10px 12px',
               border: 'none',
               borderRadius: 6,
-              background: !filterPid ? '#6366f120' : 'transparent',
+              background: !filterPid ? '#4f46e520' : 'transparent',
               cursor: 'pointer',
               textAlign: 'left',
-              color: !filterPid ? '#6366f1' : (isDark ? '#fff' : '#1a1a1a'),
+              color: !filterPid ? '#4f46e5' : (isDark ? '#fff' : '#1a1a1a'),
               fontWeight: !filterPid ? 600 : 400,
               fontSize: 14,
             }}

@@ -12,3 +12,36 @@ html, body, #root {
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
+
+.klip-calendar-compact .ant-picker-calendar-header {
+  padding: 8px 0;
+}
+
+.klip-calendar-compact .ant-picker-calendar-date {
+  min-height: 56px !important;
+  padding: 2px 4px !important;
+}
+
+.klip-calendar-compact .ant-picker-calendar-date-content {
+  height: 34px !important;
+  overflow: hidden;
+}
+
+.klip-calendar-compact .ant-picker-calendar-date-value {
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.klip-fields-mobile-list {
+  display: none;
+}
+
+@media (max-width: 700px) {
+  .klip-fields-table-panel {
+    display: none !important;
+  }
+
+  .klip-fields-mobile-list {
+    display: flex;
+  }
+}

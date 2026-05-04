@@ -1,8 +1,10 @@
 import React, {
   useState,
   useCallback,
+  useDeferredValue,
   useEffect,
   useMemo,
+  useRef,
 } from 'react'
 import dayjs from 'dayjs'
 import 'dayjs/locale/pt-br'
@@ -56,6 +58,7 @@ import {
   GithubOutlined,
   GlobalOutlined,
   LogoutOutlined,
+  PlusOutlined,
 } from '@ant-design/icons'
 import { AuthProvider } from './contexts/AuthContext'
 import { TasksTable } from './components/TasksTable'
@@ -74,7 +77,7 @@ import { useKlipData } from './hooks/useKlipData'
 import { useAppRoute } from './hooks/useAppRoute'
 import { useUserPreference } from './hooks/useUserPreference'
 import { taskBelongsToProject } from './lib/klipAdapters'
-import { getRouteMenuKey } from './lib/routes'
+import { getRouteMenuKey, ROUTE_CHANGE_EVENT } from './lib/routes'
 import { matchesSearchText, normalizeSearchText } from './lib/search'
 import {
   PROJECT_COLORS,
@@ -160,10 +163,10 @@ const AppDataProvider: React.FC<{ children: React.ReactNode }> = ({ children }) 
 
 // ─── LOGO ─────────────────────────────────────────────────────────────────────
 
-export const AppLogo: React.FC<{ collapsed: boolean }> = ({ collapsed }) => {
+export const AppLogo: React.FC<{ collapsed: boolean; onClick: () => void }> = ({ collapsed, onClick }) => {
   const { isDark } = useTheme()
   return (
-    <div style={{
+    <button type="button" onClick={onClick} aria-label="Klip Task Manager App - Ir para a página inicial" style={{
       display: 'flex',
       alignItems: 'center',
       gap: 10,
@@ -172,6 +175,14 @@ export const AppLogo: React.FC<{ collapsed: boolean }> = ({ collapsed }) => {
       borderBottom: `1px solid ${isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)'}`,
       overflow: 'hidden',
       flexShrink: 0,
+      width: '100%',
+      background: 'transparent',
+      borderTop: 0,
+      borderLeft: 0,
+      borderRight: 0,
+      color: 'inherit',
+      cursor: 'pointer',
+      textAlign: 'left',
     }}>
       <svg width="32" height="32" viewBox="0 0 191 191" style={{ flexShrink: 0, borderRadius: 7, display: 'block' }}>
         <path d="M 75.00 29.77 L 75.00 160.00 L 71.75 159.90 C60.29,159.54 49.27,152.47 43.84,142.00 C41.51,137.53 41.50,137.27 41.22,96.10 L 41.21 95.49 C40.97,59.07 40.91,50.73 44.72,44.93 C45.88,43.17 47.38,41.65 49.35,39.65 C55.74,33.15 60.71,30.73 68.75,30.19 Z" fill="rgb(102,172,203)" />
@@ -187,11 +198,34 @@ export const AppLogo: React.FC<{ collapsed: boolean }> = ({ collapsed }) => {
           </div>
         </div>
       )}
-    </div>
+    </button>
   )
 }
 
 // ─── TASK DRAWER ──────────────────────────────────────────────────────────────
+
+const PageHeader: React.FC<{
+  title: string
+  description: string
+  action?: React.ReactNode
+}> = ({ title, description, action }) => (
+  <div style={{
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+    flexShrink: 0,
+    flexWrap: 'wrap',
+  }}>
+    <Space orientation="vertical" size={0} style={{ minWidth: 0, flex: '1 1 220px' }}>
+      <Text strong style={{ fontSize: 18 }}>{title}</Text>
+      <Text type="secondary" style={{ fontSize: 12 }}>
+        {description}
+      </Text>
+    </Space>
+    {action ? <div style={{ flexShrink: 0 }}>{action}</div> : null}
+  </div>
+)
 
 interface TaskFormValues {
   title: string
@@ -220,7 +254,8 @@ export const TaskDrawer: React.FC<{
   editingTask: Task | null
   defaultProjectId?: string
   defaultParentTaskId?: string
-}> = ({ open, onClose, editingTask, defaultProjectId, defaultParentTaskId }) => {
+  defaultDueDate?: string
+}> = ({ open, onClose, editingTask, defaultProjectId, defaultParentTaskId, defaultDueDate }) => {
   const { tasks, projects, customFields, addTask, updateTask } = useAppData()
   const [form] = Form.useForm<TaskFormValues>()
   const watchedProjectId = Form.useWatch('projectId', form) as string | undefined
@@ -254,9 +289,10 @@ export const TaskDrawer: React.FC<{
       form.setFieldsValue({
         projectId: pid,
         parentTaskId: defaultParentTaskId,
+        dueDate: defaultDueDate ? dayjs(defaultDueDate) : undefined,
       })
     }
-  }, [open, editingTask, defaultProjectId, defaultParentTaskId, customFields, form])
+  }, [open, editingTask, defaultProjectId, defaultParentTaskId, defaultDueDate, customFields, form])
 
   const handleSubmit = async () => {
     const values = await form.validateFields().catch(() => undefined)
@@ -297,7 +333,7 @@ export const TaskDrawer: React.FC<{
       title={editingTask ? 'Editar Tarefa' : 'Nova Tarefa'}
       open={open}
       onClose={handleClose}
-      size={460}
+      size="min(100vw, 460px)"
       destroyOnHidden
       keyboard
       maskClosable
@@ -454,7 +490,7 @@ export const ProjectDrawer: React.FC<{
       title={editingProject ? 'Editar Projeto' : 'Novo Projeto'}
       open={open}
       onClose={handleClose}
-      size={440}
+      size="min(100vw, 440px)"
       destroyOnHidden
       keyboard
       maskClosable
@@ -575,11 +611,13 @@ const TaskEditProvider: React.FC<{ children: React.ReactNode }> = ({ children })
   const [editingTask, setEditingTask] = useState<Task | null>(null)
   const [defaultPid, setDefaultPid] = useState<string | undefined>()
   const [defaultParentTaskId, setDefaultParentTaskId] = useState<string | undefined>()
+  const [defaultDueDate, setDefaultDueDate] = useState<string | undefined>()
 
-  const openEditTask = useCallback((task: Task | null, defaultProjectId?: string, parentTaskId?: string) => {
+  const openEditTask = useCallback((task: Task | null, defaultProjectId?: string, parentTaskId?: string, dueDate?: string) => {
     setEditingTask(task)
     setDefaultPid(defaultProjectId)
     setDefaultParentTaskId(parentTaskId)
+    setDefaultDueDate(dueDate)
     setTaskOpen(true)
   }, [])
 
@@ -593,10 +631,12 @@ const TaskEditProvider: React.FC<{ children: React.ReactNode }> = ({ children })
           setEditingTask(null)
           setDefaultPid(undefined)
           setDefaultParentTaskId(undefined)
+          setDefaultDueDate(undefined)
         }}
         editingTask={editingTask}
         defaultProjectId={defaultPid}
         defaultParentTaskId={defaultParentTaskId}
+        defaultDueDate={defaultDueDate}
       />
     </TaskEditContext.Provider>
   )
@@ -618,11 +658,22 @@ const GlobalSearchInput: React.FC<{
   setTaskGlobalFilter: (query: string) => void
 }> = ({ query, onQueryChange, projects, tasks, isDark, border, navigate, openEditTask, setTaskGlobalFilter }) => {
   const [focused, setFocused] = useState(false)
-  const trimmedQuery = query.trim()
+  const [searchValue, setSearchValue] = useState(query)
+  const deferredSearchValue = useDeferredValue(searchValue)
+  const trimmedQuery = deferredSearchValue.trim()
+  const immediateTrimmedQuery = searchValue.trim()
   const projectById = useMemo(
     () => new Map(projects.map(project => [project.id, project])),
     [projects],
   )
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      if (searchValue !== query) onQueryChange(searchValue)
+    }, 250)
+
+    return () => window.clearTimeout(timer)
+  }, [onQueryChange, query, searchValue])
 
   const results = useMemo<GlobalSearchResult[]>(() => {
     if (!trimmedQuery) return []
@@ -681,19 +732,30 @@ const GlobalSearchInput: React.FC<{
   }, [navigate, openEditTask])
 
   const handleEnter = useCallback(() => {
-    if (!trimmedQuery) return
+    if (!immediateTrimmedQuery) return
     const firstResult = results[0]
     if (firstResult) {
       selectResult(firstResult)
       return
     }
 
-    setTaskGlobalFilter(trimmedQuery)
+    setTaskGlobalFilter(immediateTrimmedQuery)
+    onQueryChange(searchValue)
     navigate({ view: 'tasks' })
     setFocused(false)
-  }, [navigate, results, selectResult, setTaskGlobalFilter, trimmedQuery])
+  }, [immediateTrimmedQuery, navigate, onQueryChange, results, searchValue, selectResult, setTaskGlobalFilter])
 
-  const showDropdown = focused && trimmedQuery.length > 0
+  const handleBlur = useCallback(() => {
+    onQueryChange(searchValue)
+    window.setTimeout(() => setFocused(false), 120)
+  }, [onQueryChange, searchValue])
+
+  const handleKeyDown = useCallback((event: React.KeyboardEvent<HTMLInputElement>) => {
+    if (event.key !== 'Escape') return
+    setFocused(false)
+  }, [])
+
+  const showDropdown = focused && immediateTrimmedQuery.length > 0
 
   return (
     <div style={{ flex: 1, maxWidth: 420, position: 'relative', zIndex: 1 }}>
@@ -701,13 +763,16 @@ const GlobalSearchInput: React.FC<{
         id="global-search"
         name="global-search"
         aria-label="Pesquisar tarefas e projetos"
+        aria-expanded={showDropdown}
+        aria-controls={showDropdown ? 'global-search-results' : undefined}
         autoComplete="off"
         prefix={<SearchOutlined style={{ color: isDark ? 'rgba(255,255,255,0.3)' : 'rgba(0,0,0,0.25)' }} />}
         placeholder="Pesquisar tarefas, projetos..."
-        value={query}
-        onChange={e => onQueryChange(e.target.value)}
+        value={searchValue}
+        onChange={e => setSearchValue(e.target.value)}
         onFocus={() => setFocused(true)}
-        onBlur={() => window.setTimeout(() => setFocused(false), 120)}
+        onBlur={handleBlur}
+        onKeyDown={handleKeyDown}
         onPressEnter={handleEnter}
         allowClear
         style={{
@@ -719,7 +784,7 @@ const GlobalSearchInput: React.FC<{
       />
       {showDropdown && (
         <div
-          role="listbox"
+          id="global-search-results"
           aria-label="Resultados da busca global"
           onMouseDown={event => event.preventDefault()}
           style={{
@@ -744,7 +809,6 @@ const GlobalSearchInput: React.FC<{
               <button
                 key={`${result.type}-${result.id}`}
                 type="button"
-                role="option"
                 onClick={() => selectResult(result)}
                 style={{
                   width: '100%',
@@ -775,7 +839,7 @@ const GlobalSearchInput: React.FC<{
 
 // ─── CALENDAR VIEW ────────────────────────────────────────────────────────────
 
-export const CalendarView: React.FC = () => {
+export const CalendarView: React.FC<{ compact?: boolean }> = ({ compact = false }) => {
   const { tasks } = useAppData()
   const { openEditTask } = useTaskEdit()
   const { isDark } = useTheme()
@@ -805,17 +869,41 @@ export const CalendarView: React.FC = () => {
 
   const dateCellRender = (value: dayjs.Dayjs) => {
     const dayTasks = tasksByDate[value.format('YYYY-MM-DD')] ?? []
+    const visibleTasks = dayTasks.slice(0, compact ? 2 : 4)
+    const hiddenTaskCount = dayTasks.length - visibleTasks.length
     return (
       <ul style={{ listStyle: 'none', margin: 0, padding: 0 }}>
-        {dayTasks.map(task => (
+        {visibleTasks.map(task => (
           <li
             key={task.id}
-            onClick={e => { e.stopPropagation(); openEditTask(task) }}
-            style={{ cursor: 'pointer', marginBottom: 2 }}
+            style={{ marginBottom: 2 }}
           >
-            <Badge status={statusToBadge(task.status)} text={task.title} style={{ fontSize: 12 }} />
+            <button
+              type="button"
+              aria-label={`Editar tarefa ${task.title}`}
+              onClick={e => { e.stopPropagation(); openEditTask(task) }}
+              style={{
+                width: '100%',
+                minWidth: 0,
+                border: 0,
+                background: 'transparent',
+                color: 'inherit',
+                cursor: 'pointer',
+                padding: 0,
+                textAlign: 'left',
+              }}
+            >
+              <Badge status={statusToBadge(task.status)} text={task.title} style={{ fontSize: compact ? 11 : 12 }} />
+            </button>
           </li>
         ))}
+        {hiddenTaskCount > 0 && (
+          <li style={{ marginTop: 2 }}>
+            <Text type="secondary" style={{ fontSize: 11 }}>
+              +{hiddenTaskCount} tarefa{hiddenTaskCount !== 1 ? 's' : ''}
+            </Text>
+          </li>
+        )}
       </ul>
     )
   }
@@ -825,19 +913,35 @@ export const CalendarView: React.FC = () => {
     return info.originNode
   }
 
+  const handleCalendarSelect: CalendarProps<dayjs.Dayjs>['onSelect'] = (date, info) => {
+    if (info.source !== 'date') return
+    openEditTask(null, undefined, undefined, date.format('YYYY-MM-DD'))
+  }
+
   return (
-    <div style={{
-      flex: 1,
-      minHeight: 0,
-      display: 'flex',
-      flexDirection: 'column',
-      overflow: 'hidden',
-      background: isDark ? 'rgba(22,22,22,0.85)' : 'rgba(255,255,255,0.72)',
-      border: `1px solid ${border}`,
-      ...glass,
-    }}>
-      <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: 16 }}>
-        <Calendar cellRender={cellRender} />
+    <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', gap: compact ? 10 : 16 }}>
+      <PageHeader
+        title="Calendário"
+        description="Acompanhe prazos e tarefas distribuídas por data."
+        action={(
+          <Button type="primary" icon={<PlusOutlined />} onClick={() => openEditTask(null)}>
+            Nova Tarefa
+          </Button>
+        )}
+      />
+      <div className={compact ? 'klip-calendar-compact' : undefined} style={{
+        flex: 1,
+        minHeight: 0,
+        display: 'flex',
+        flexDirection: 'column',
+        overflow: 'hidden',
+        background: isDark ? 'rgba(22,22,22,0.85)' : 'rgba(255,255,255,0.72)',
+        border: `1px solid ${border}`,
+        ...glass,
+      }}>
+        <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: compact ? 8 : 16 }}>
+          <Calendar cellRender={cellRender} onSelect={handleCalendarSelect} />
+        </div>
       </div>
     </div>
   )
@@ -869,7 +973,16 @@ export const UserSettingsView: React.FC = () => {
   ]
 
   return (
-    <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 24 }}>
+    <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 16 }}>
+      <PageHeader
+        title="Usuário"
+        description="Gerencie preferências, perfil, contas vinculadas e configurações da conta."
+        action={(
+          <Button danger icon={<LogoutOutlined />} onClick={logout}>
+            Desconectar
+          </Button>
+        )}
+      />
       {/* Preferências */}
       <div style={{ background: cardBg, border: `1px solid ${border}` }}>
         <div style={{ padding: '10px 16px', borderBottom: `1px solid ${border}`, display: 'flex', alignItems: 'center', flexShrink: 0 }}>
@@ -903,7 +1016,7 @@ export const UserSettingsView: React.FC = () => {
         </div>
         <div style={{ padding: 16 }}>
           <Space size={24} align="start">
-            <Avatar size={72} icon={<UserOutlined />} style={{ background: '#6366f1', flexShrink: 0 }} />
+            <Avatar size={72} icon={<UserOutlined />} style={{ background: '#4f46e5', flexShrink: 0 }} />
             <Form layout="vertical" style={{ flex: 1 }} name="profile-settings-form">
               <Row gutter={16}>
                 <Col xs={24} sm={12}>
@@ -1009,12 +1122,6 @@ export const UserSettingsView: React.FC = () => {
             <Button type="primary" icon={<RobotOutlined />} disabled>Salvar configurações de LLM</Button>
           </Form>
         </div>
-      </div>
-
-      <div style={{ display: 'flex', justifyContent: 'flex-end', paddingBottom: 8 }}>
-        <Button danger icon={<LogoutOutlined />} onClick={logout}>
-          Desconectar da conta
-        </Button>
       </div>
     </div>
   )
@@ -1136,19 +1243,67 @@ export const CustomFieldsSettingsView: React.FC = () => {
 
   return (
     <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 16 }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
-        <Space orientation="vertical" size={0}>
-          <Text strong style={{ fontSize: 18 }}>Campos Personalizados</Text>
-          <Text type="secondary" style={{ fontSize: 12 }}>
-            Defina campos universais ou vinculados aos projetos para organizar as tarefas.
-          </Text>
-        </Space>
-        <Button type="primary" icon={<DatabaseOutlined />} onClick={openNew}>
-          Novo campo
-        </Button>
+      <PageHeader
+        title="Campos Personalizados"
+        description="Defina campos universais ou vinculados aos projetos para organizar as tarefas."
+        action={(
+          <Button type="primary" icon={<DatabaseOutlined />} onClick={openNew}>
+            Novo campo
+          </Button>
+        )}
+      />
+
+      <div className="klip-fields-mobile-list" style={{ flexDirection: 'column', gap: 8 }}>
+        {customFields.length === 0 ? (
+          <div style={{ background: cardBg, border: `1px solid ${border}`, padding: 32 }}>
+            <Empty description="Nenhum campo personalizado" />
+          </div>
+        ) : customFields.map(field => {
+          const linkedProjects = field.scope === 'universal'
+            ? []
+            : field.projectIds.map(projectId => projects.find(project => project.id === projectId)).filter((project): project is Project => Boolean(project))
+
+          return (
+            <div key={field.id} style={{ background: cardBg, border: `1px solid ${border}`, padding: 12, display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'flex-start' }}>
+                <Space orientation="vertical" size={2} style={{ minWidth: 0 }}>
+                  <Text strong style={{ fontSize: 13 }}>{field.name}</Text>
+                  <Space size={4} wrap>
+                    <Tag style={{ margin: 0 }}>{fieldTypeLabels[field.type]}</Tag>
+                    <Tag color={field.scope === 'universal' ? 'purple' : 'blue'} style={{ margin: 0 }}>
+                      {field.scope === 'universal' ? 'Universal' : 'Projeto'}
+                    </Tag>
+                  </Space>
+                </Space>
+                <Space size={2}>
+                  <Button size="small" onClick={() => openEdit(field)} aria-label={`Editar ${field.name}`}>Editar</Button>
+                  <Button size="small" danger style={{ color: '#cf1322' }} onClick={() => deleteCustomField(field.id)} aria-label={`Excluir ${field.name}`}>Excluir</Button>
+                </Space>
+              </div>
+              <div>
+                {field.scope === 'universal' ? (
+                  <Text style={{ fontSize: 12, color: isDark ? 'rgba(255,255,255,0.68)' : '#595959' }}>Disponível para todos os projetos.</Text>
+                ) : linkedProjects.length > 0 ? (
+                  <Space size={4} wrap>
+                    {linkedProjects.map(project => {
+                      const tagColor = project.color.toLowerCase() === '#6366f1' ? '#4f46e5' : project.color
+                      return (
+                        <Tag key={project.id} style={{ backgroundColor: tagColor, color: getContrastColor(tagColor), border: 'none', margin: 0 }}>
+                          {project.name}
+                        </Tag>
+                      )
+                    })}
+                  </Space>
+                ) : (
+                  <Text style={{ fontSize: 12, color: isDark ? 'rgba(255,255,255,0.68)' : '#595959' }}>Nenhum projeto vinculado.</Text>
+                )}
+              </div>
+            </div>
+          )
+        })}
       </div>
 
-      <div style={{ background: cardBg, border: `1px solid ${border}`, minHeight: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+      <div className="klip-fields-table-panel" style={{ background: cardBg, border: `1px solid ${border}`, minHeight: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
         <div style={{ height: 44, padding: '0 16px', borderBottom: `1px solid ${border}`, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0 }}>
           <Space size={8}>
             <Text strong style={{ fontSize: 13 }}>Biblioteca de campos</Text>
@@ -1175,7 +1330,7 @@ export const CustomFieldsSettingsView: React.FC = () => {
         title={editingField ? 'Editar campo' : 'Novo campo'}
         open={drawerOpen}
         onClose={closeDrawer}
-        size={440}
+        size="min(100vw, 440px)"
         destroyOnHidden
         keyboard
         maskClosable
@@ -1317,11 +1472,12 @@ const ProjectsOverview: React.FC<{
 const MainApp: React.FC = () => {
   const { isDark } = useTheme()
   const { projects, tasks } = useAppData()
-  const { showLoader, hideLoader } = useLoader()
   const { openEditTask } = useTaskEdit()
   const { route, navigate } = useAppRoute()
 
-  const [siderWidth, setSiderWidth] = useUserPreference('sidebarWidth')
+  const [siderWidthPreference, setSiderWidthPreference] = useUserPreference('sidebarWidth')
+  const [siderWidth, setLiveSiderWidth] = useState(siderWidthPreference)
+  const siderWidthPersistTimerRef = useRef<number | undefined>(undefined)
   const [collapsed, setCollapsed] = useUserPreference('sidebarCollapsed')
   const [openKeys, setOpenKeys] = useUserPreference('sidebarOpenKeys')
   const [projOpen, setProjOpen] = useState(false)
@@ -1331,13 +1487,21 @@ const MainApp: React.FC = () => {
   const filterPid = route.view === 'project' ? route.projectId : undefined
   const currentProject = projects.find(p => p.id === filterPid)
   const selectedMenuKey = getRouteMenuKey(route)
+  const goHome = useCallback(() => {
+    window.history.pushState(null, '', '/')
+    window.dispatchEvent(new Event(ROUTE_CHANGE_EVENT))
+  }, [])
 
-  // Simulate initial data load
-  useEffect(() => {
-    showLoader()
-    const t = setTimeout(hideLoader, 1400)
-    return () => clearTimeout(t)
-  }, [showLoader, hideLoader])
+  const queueSiderWidthPersist = useCallback((width: number) => {
+    window.clearTimeout(siderWidthPersistTimerRef.current)
+    siderWidthPersistTimerRef.current = window.setTimeout(() => {
+      setSiderWidthPreference(width)
+    }, 180)
+  }, [setSiderWidthPreference])
+
+  useEffect(() => () => {
+    window.clearTimeout(siderWidthPersistTimerRef.current)
+  }, [])
 
   useEffect(() => {
     if (collapsed) return
@@ -1437,7 +1601,8 @@ const MainApp: React.FC = () => {
           if (w < MIN_SIDER_W) {
             setCollapsed(true)
           } else {
-            setSiderWidth(w)
+            setLiveSiderWidth(w)
+            queueSiderWidthPersist(w)
           }
         }}
       >
@@ -1452,7 +1617,7 @@ const MainApp: React.FC = () => {
             overflow: 'hidden',
             ...glass,
           }}>
-            <AppLogo collapsed={collapsed} />
+            <AppLogo collapsed={collapsed} onClick={goHome} />
             <div style={{
               padding: collapsed ? '6px 0' : '6px 10px',
               textAlign: collapsed ? 'center' : 'right',
@@ -1462,6 +1627,7 @@ const MainApp: React.FC = () => {
                 <Button
                   type="text"
                   size="small"
+                  aria-label={collapsed ? 'Expandir sidebar' : 'Recolher sidebar'}
                   icon={collapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
                   onClick={handleCollapse}
                   style={{ opacity: 0.5 }}
@@ -1576,15 +1742,28 @@ const MainApp: React.FC = () => {
               />
               <Space size={4} style={{ flexShrink: 0 }}>
                 <Tooltip title="Minha conta">
-                  <Avatar
-                    size={28}
-                    style={{ backgroundColor: '#6366f1', fontSize: 12, cursor: 'pointer' }}
-                    icon={<UserOutlined />}
+                  <button
+                    type="button"
+                    aria-label="Minha conta"
                     onClick={() => {
                       navigate({ view: 'settings-user' })
                       setOpenKeys(prev => prev.includes('settings') ? prev : [...prev, 'settings'])
                     }}
-                  />
+                    style={{
+                      border: 0,
+                      background: 'transparent',
+                      padding: 0,
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                    }}
+                  >
+                    <Avatar
+                      size={28}
+                      style={{ backgroundColor: '#4f46e5', fontSize: 12 }}
+                      icon={<UserOutlined />}
+                    />
+                  </button>
                 </Tooltip>
               </Space>
             </Header>
@@ -1732,7 +1911,7 @@ const ThemeWrapper: React.FC<{ children: React.ReactNode }> = ({ children }) => 
           cssVar: { key: `klip-${themePreference}` },
           algorithm: isDark ? antTheme.darkAlgorithm : antTheme.defaultAlgorithm,
           token: {
-            colorPrimary: '#6366f1',
+            colorPrimary: '#4f46e5',
             fontFamily: "'Plus Jakarta Sans', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
           },
           components: {
