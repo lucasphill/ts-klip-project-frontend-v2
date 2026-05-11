@@ -3,12 +3,10 @@ import {
   Button,
   Empty,
   Input,
-  Popconfirm,
   Popover,
   Select,
   Space,
   Tag,
-  Tooltip,
   Typography,
   theme as antTheme,
 } from 'antd'
@@ -27,8 +25,10 @@ import {
   flexRender,
   getCoreRowModel,
   useReactTable,
+  type Cell,
   type ColumnFiltersState,
   type ColumnResizeMode,
+  type Row,
   type SortingState,
 } from '@tanstack/react-table'
 import { useVirtualizer } from '@tanstack/react-virtual'
@@ -116,6 +116,54 @@ const getDueDateLabel = (value?: string) => {
   if (parts.length === 3) return `${parts[2]}/${parts[1]}/${parts[0]}`
   return new Date(`${value.split('T')[0]}T12:00:00`).toLocaleDateString('pt-BR')
 }
+
+
+const MemoizedRow = React.memo(({ row, rowHeight, doneBg, childBg, bodyBg, doneHoverBg, childHoverBg, bodyHoverBg }: {
+  row: Row<TaskTableRow>
+  rowHeight: number
+  doneBg: string
+  childBg: string
+  bodyBg: string
+  doneHoverBg: string
+  childHoverBg: string
+  bodyHoverBg: string
+}) => {
+  const rowBg = row.original.status === 'done'
+    ? doneBg
+    : row.original.depth > 0 ? childBg : bodyBg
+  const rowHoverBg = row.original.status === 'done'
+    ? doneHoverBg
+    : row.original.depth > 0 ? childHoverBg : bodyHoverBg
+
+  return (
+    <tr
+      className="klip-tr"
+      style={{
+        '--klip-row-bg': rowBg,
+        '--klip-row-hover-bg': rowHoverBg,
+      } as React.CSSProperties}
+    >
+      {row.getVisibleCells().map((cell: Cell<TaskTableRow, unknown>) => {
+        const columnId = cell.column.id
+        const isLeftSticky = columnId === 'done'
+        const isRightSticky = columnId === 'actions'
+        
+        return (
+          <td
+            key={cell.id}
+            className={`${isLeftSticky || isRightSticky ? 'klip-td-sticky' : 'klip-td-normal'} ${isLeftSticky ? 'klip-td-sticky-left' : ''} ${isRightSticky ? 'klip-td-sticky-right' : ''}`}
+            style={{ height: rowHeight, background: rowBg }}
+          >
+            {flexRender(cell.column.columnDef.cell, cell.getContext())}
+          </td>
+        )
+      })}
+    </tr>
+  )
+});
+
+
+
 
 export const TasksTable: React.FC<{
   onEdit: (task: Task) => void
@@ -524,8 +572,8 @@ export const TasksTable: React.FC<{
           const isDone = task.status === 'done'
 
           return (
-            <Tooltip title={isDone ? 'Marcar como pendente' : 'Marcar como concluída'} placement="right">
-              <button
+            <button
+                title={isDone ? 'Marcar como pendente' : 'Marcar como concluída'}
                 className="klip-done-button"
                 aria-label={`${isDone ? 'Marcar como pendente' : 'Marcar como concluída'}: ${task.title}`}
                 onClick={() => { void updateTask(task.id, { status: isDone ? 'todo' : 'done' }) }}
@@ -556,7 +604,6 @@ export const TasksTable: React.FC<{
                   />
                 )}
               </button>
-            </Tooltip>
           )
         },
       }),
@@ -712,29 +759,22 @@ export const TasksTable: React.FC<{
 
           return (
             <Space size={2} className="row-actions">
-              <Tooltip title="Editar">
-                <Button className="klip-row-action-button" type="text" size="small" icon={<EditOutlined />} aria-label={`Editar ${task.title}`} onClick={() => onEdit(task)} />
-              </Tooltip>
-              <Tooltip title="Adicionar subtarefa">
-                <Button className="klip-row-action-button" type="text" size="small" icon={<PlusOutlined />} aria-label={`Adicionar subtarefa em ${task.title}`} onClick={() => onAddSubtask(task)} />
-              </Tooltip>
-              <Popconfirm
-                title="Remover tarefa?"
-                description={`"${task.title}" será removida.`}
-                okText="Remover"
-                cancelText="Cancelar"
-                okButtonProps={{ danger: true }}
-                onConfirm={() => { void deleteTask(task.id) }}
-              >
-                <Button
-                  className="klip-row-action-button"
-                  type="text"
-                  size="small"
-                  danger
-                  icon={<DeleteOutlined />}
-                  aria-label={`Remover ${task.title}`}
-                />
-              </Popconfirm>
+              <Button title="Editar" className="klip-row-action-button" type="text" size="small" icon={<EditOutlined />} aria-label={`Editar ${task.title}`} onClick={() => onEdit(task)} />
+              <Button title="Adicionar subtarefa" className="klip-row-action-button" type="text" size="small" icon={<PlusOutlined />} aria-label={`Adicionar subtarefa em ${task.title}`} onClick={() => onAddSubtask(task)} />
+              <Button
+                title="Remover tarefa"
+                className="klip-row-action-button"
+                type="text"
+                size="small"
+                danger
+                icon={<DeleteOutlined />}
+                aria-label={`Remover ${task.title}`}
+                onClick={() => {
+                  if (window.confirm(`Remover tarefa?\n"${task.title}" será removida.`)) {
+                    void deleteTask(task.id)
+                  }
+                }}
+              />
             </Space>
           )
         },
@@ -835,6 +875,27 @@ export const TasksTable: React.FC<{
         background: var(--klip-row-bg);
         background-clip: padding-box;
       }
+      .klip-td-sticky-left {
+        position: sticky;
+        left: 0;
+        z-index: 3;
+        box-shadow: 2px 0 8px -4px rgba(0,0,0,0.30);
+      }
+      .klip-td-sticky-right {
+        position: sticky;
+        right: 0;
+        z-index: 3;
+        box-shadow: -4px 0 12px -6px rgba(0,0,0,0.35);
+      }
+      .klip-td-normal, .klip-td-sticky {
+        padding: 0 10px;
+        border-bottom: 1px solid var(--klip-border-color);
+        border-right: 1px solid var(--klip-border-color);
+        overflow: hidden;
+        background-clip: padding-box;
+        transition: background 0.1s;
+        vertical-align: middle;
+      }
       .klip-filter-trigger,
       .klip-done-button,
       .klip-task-title-button,
@@ -895,6 +956,7 @@ export const TasksTable: React.FC<{
     <div
       className="klip-table-shell"
       style={{
+        ['--klip-border-color' as string]: border,
         flex: 1,
         display: 'flex',
         flexDirection: 'column',
@@ -1150,59 +1212,18 @@ export const TasksTable: React.FC<{
             {virtualRows.map(virtualRow => {
               const row = rows[virtualRow.index]
               if (!row) return null
-              const rowBg = row.original.status === 'done'
-                ? doneBg
-                : row.original.depth > 0 ? childBg : bodyBg
-              const rowHoverBg = row.original.status === 'done'
-                ? doneHoverBg
-                : row.original.depth > 0 ? childHoverBg : bodyHoverBg
-
               return (
-                <tr
+                <MemoizedRow
                   key={row.id}
-                  className="klip-tr"
-                  style={{
-                    ['--klip-row-bg' as string]: rowBg,
-                    ['--klip-row-hover-bg' as string]: rowHoverBg,
-                  } as React.CSSProperties}
-                >
-                  {row.getVisibleCells().map(cell => {
-                    const columnId = cell.column.id
-                    const isLeftSticky = columnId === 'done'
-                    const isRightSticky = columnId === 'actions'
-                    const stickyLeft = isLeftSticky ? 0 : undefined
-                    const cellBg = rowBg
-
-                    return (
-                      <td
-                        key={cell.id}
-                        className={isLeftSticky || isRightSticky ? 'klip-td-sticky' : undefined}
-                        style={{
-                          position: isLeftSticky || isRightSticky ? 'sticky' : undefined,
-                          left: isLeftSticky ? stickyLeft : undefined,
-                          right: isRightSticky ? 0 : undefined,
-                          zIndex: isLeftSticky || isRightSticky ? 3 : undefined,
-                          height: rowHeight,
-                          padding: '0 10px',
-                          borderBottom: `1px solid ${border}`,
-                          borderRight: `1px solid ${border}`,
-                          boxShadow: isRightSticky
-                              ? '-4px 0 12px -6px rgba(0,0,0,0.35)'
-                              : isLeftSticky
-                                ? '2px 0 8px -4px rgba(0,0,0,0.30)'
-                                : undefined,
-                          overflow: 'hidden',
-                          background: cellBg,
-                          backgroundClip: 'padding-box',
-                          transition: 'background 0.1s',
-                          verticalAlign: 'middle',
-                        }}
-                      >
-                        {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                      </td>
-                    )
-                  })}
-                </tr>
+                  row={row}
+                  rowHeight={rowHeight}
+                  doneBg={doneBg}
+                  childBg={childBg}
+                  bodyBg={bodyBg}
+                  doneHoverBg={doneHoverBg}
+                  childHoverBg={childHoverBg}
+                  bodyHoverBg={bodyHoverBg}
+                />
               )
             })}
 

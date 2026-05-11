@@ -1673,6 +1673,10 @@ const MainApp: React.FC = () => {
     })
   }
 
+  const handleAddSubtask = useCallback((task: Task) => {
+    openEditTask(null, task.projectId || task.projectIds[0] || filterPid, task.id)
+  }, [openEditTask, filterPid])
+
   return (
     <div style={{
       height: '100vh',
@@ -1946,7 +1950,7 @@ const MainApp: React.FC = () => {
                     >
                       <TasksTable
                         onEdit={openEditTask}
-                        onAddSubtask={(task) => openEditTask(null, task.projectId || task.projectIds[0] || filterPid, task.id)}
+                        onAddSubtask={handleAddSubtask}
                         filterPid={filterPid}
                       />
                     </React.Suspense>
