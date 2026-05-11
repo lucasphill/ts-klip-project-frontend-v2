@@ -3,6 +3,8 @@ import {
   Button,
   Empty,
   Input,
+  Popconfirm,
+  Popover,
   Select,
   Space,
   Tag,
@@ -55,6 +57,11 @@ type TaskTableRow = Task & {
 const taskTableColumnHelper = createColumnHelper<TaskTableRow>()
 const TASK_TABLE_FIXED_LEFT_COLS = ['done']
 const TASK_TABLE_FIXED_RIGHT_COLS = ['actions']
+const TASK_TABLE_SIZE_OPTIONS = [
+  { label: 'Compacto', value: 'compact' },
+  { label: 'Padrão', value: 'default' },
+  { label: 'Confortável', value: 'comfortable' },
+]
 
 const normalizeParentTaskId = (value?: string | null) => {
   const trimmed = typeof value === 'string' ? value.trim() : ''
@@ -223,6 +230,10 @@ export const TasksTable: React.FC<{
     () => Object.fromEntries(columnFilters.map(filter => [filter.id, String(filter.value ?? '')])),
     [columnFilters],
   )
+  const projectFilterOptions = useMemo(
+    () => projects.map(project => ({ value: project.name, label: project.name })),
+    [projects],
+  )
 
   const getProjectLabel = useCallback((task: Task) => {
     const labels = getTaskProjectIds(task)
@@ -369,6 +380,12 @@ export const TasksTable: React.FC<{
     }
 
     const sortTasks = (items: Task[]) => [...items].sort(compareTasks)
+    const sortedRootTasks = sortTasks(rootTasks)
+    const sortedTasks = sortTasks(scopedTasks)
+    const sortedChildrenByParentId = new Map<string, Task[]>()
+    childrenByParentId.forEach((children, parentId) => {
+      sortedChildrenByParentId.set(parentId, sortTasks(children))
+    })
     const rows: TaskTableRow[] = []
     const visitedTaskIds = new Set<string>()
 
@@ -376,7 +393,7 @@ export const TasksTable: React.FC<{
       if (visitedTaskIds.has(task.id)) return
       visitedTaskIds.add(task.id)
 
-      const allChildren = sortTasks(childrenByParentId.get(task.id) ?? [])
+      const allChildren = sortedChildrenByParentId.get(task.id) ?? []
       const visibleChildren = hasActiveFilters
         ? allChildren.filter(child => contextualTaskIds.has(child.id))
         : allChildren
@@ -402,12 +419,12 @@ export const TasksTable: React.FC<{
       })
     }
 
-    sortTasks(rootTasks).forEach(task => {
+    sortedRootTasks.forEach(task => {
       if (hasActiveFilters && !contextualTaskIds.has(task.id)) return
       visitTask(task, 0)
     })
 
-    sortTasks(scopedTasks).forEach(task => {
+    sortedTasks.forEach(task => {
       if (visitedTaskIds.has(task.id)) return
       const parentTaskId = normalizeParentTaskId(task.parentTaskId)
       if (parentTaskId && parentTaskId !== task.id && taskMap.has(parentTaskId)) return
@@ -435,7 +452,9 @@ export const TasksTable: React.FC<{
   const bodyBg = isDark ? '#121212' : '#ffffff'
   const doneBg = isDark ? '#12251d' : '#f6fffb'
   const childBg = isDark ? '#171717' : '#fafafa'
-  const rowHover = isDark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.025)'
+  const bodyHoverBg = isDark ? '#1b1b1b' : '#f7f8fa'
+  const doneHoverBg = isDark ? '#183324' : '#effcf6'
+  const childHoverBg = isDark ? '#202020' : '#f3f4f6'
 
   const toggleTaskCollapsed = useCallback((taskId: string) => {
     setCollapsedTaskIds(previous =>
@@ -503,6 +522,7 @@ export const TasksTable: React.FC<{
           return (
             <Tooltip title={isDone ? 'Marcar como pendente' : 'Marcar como concluída'} placement="right">
               <button
+                className="klip-done-button"
                 aria-label={`${isDone ? 'Marcar como pendente' : 'Marcar como concluída'}: ${task.title}`}
                 onClick={() => { void updateTask(task.id, { status: isDone ? 'todo' : 'done' }) }}
                 style={{
@@ -557,6 +577,7 @@ export const TasksTable: React.FC<{
             >
               {task.hasChildren ? (
                 <Button
+                  className="klip-collapse-button"
                   type="text"
                   size="small"
                   icon={task.isExpanded ? <DownOutlined /> : <RightOutlined />}
@@ -571,6 +592,7 @@ export const TasksTable: React.FC<{
                 <span style={{ width: 22, minWidth: 22 }} />
               )}
               <button
+                className="klip-task-title-button"
                 type="button"
                 aria-label={`Editar ${task.title}`}
                 onClick={() => onEdit(task)}
@@ -687,21 +709,28 @@ export const TasksTable: React.FC<{
           return (
             <Space size={2} className="row-actions">
               <Tooltip title="Editar">
-                <Button type="text" size="small" icon={<EditOutlined />} aria-label={`Editar ${task.title}`} onClick={() => onEdit(task)} />
+                <Button className="klip-row-action-button" type="text" size="small" icon={<EditOutlined />} aria-label={`Editar ${task.title}`} onClick={() => onEdit(task)} />
               </Tooltip>
               <Tooltip title="Adicionar subtarefa">
-                <Button type="text" size="small" icon={<PlusOutlined />} aria-label={`Adicionar subtarefa em ${task.title}`} onClick={() => onAddSubtask(task)} />
+                <Button className="klip-row-action-button" type="text" size="small" icon={<PlusOutlined />} aria-label={`Adicionar subtarefa em ${task.title}`} onClick={() => onAddSubtask(task)} />
               </Tooltip>
-              <Tooltip title="Remover">
+              <Popconfirm
+                title="Remover tarefa?"
+                description={`"${task.title}" será removida.`}
+                okText="Remover"
+                cancelText="Cancelar"
+                okButtonProps={{ danger: true }}
+                onConfirm={() => { void deleteTask(task.id) }}
+              >
                 <Button
+                  className="klip-row-action-button"
                   type="text"
                   size="small"
                   danger
                   icon={<DeleteOutlined />}
                   aria-label={`Remover ${task.title}`}
-                  onClick={() => { void deleteTask(task.id) }}
                 />
-              </Tooltip>
+              </Popconfirm>
             </Space>
           )
         },
@@ -762,24 +791,74 @@ export const TasksTable: React.FC<{
 
   useEffect(() => {
     const id = 'klip-table-v2-styles'
-    if (document.getElementById(id)) return
-    const style = document.createElement('style')
-    style.id = id
+    let style = document.getElementById(id) as HTMLStyleElement | null
+    if (!style) {
+      style = document.createElement('style')
+      style.id = id
+      document.head.appendChild(style)
+    }
     style.textContent = `
       .klip-th-resizer {
         position: absolute; right: 0; top: 0;
         width: 4px; height: 100%;
         cursor: col-resize; user-select: none;
         background: transparent;
-        transition: background 0.15s;
+        transition: background var(--klip-motion-fast) var(--klip-motion-ease-out);
       }
       .klip-th-resizer:hover,
       .klip-th-resizer.isResizing { background: #6366f1; }
+      .klip-table-shell {
+        animation: klip-table-fade-in var(--klip-motion-mid) var(--klip-motion-ease-out) both;
+      }
+      .klip-table-toolbar {
+        transition:
+          border-color var(--klip-motion-mid) var(--klip-motion-ease-in-out),
+          background var(--klip-motion-mid) var(--klip-motion-ease-in-out);
+      }
+      .klip-table-scroll {
+        scroll-behavior: smooth;
+      }
       .klip-tr {
         contain: layout paint style;
+        background: var(--klip-row-bg);
       }
       .klip-tr:hover > td {
-        background: var(--klip-row-hover) !important;
+        background: var(--klip-row-hover-bg) !important;
+      }
+      .klip-tr > td {
+        transition:
+          background var(--klip-motion-fast) var(--klip-motion-ease-out),
+          box-shadow var(--klip-motion-fast) var(--klip-motion-ease-out);
+      }
+      .klip-td-sticky {
+        background: var(--klip-row-bg);
+        background-clip: padding-box;
+      }
+      .klip-filter-trigger,
+      .klip-done-button,
+      .klip-task-title-button,
+      .klip-collapse-button,
+      .klip-row-action-button {
+        transition:
+          background var(--klip-motion-fast) var(--klip-motion-ease-out),
+          color var(--klip-motion-fast) var(--klip-motion-ease-out),
+          opacity var(--klip-motion-fast) var(--klip-motion-ease-out),
+          transform var(--klip-motion-fast) var(--klip-motion-ease-out),
+          box-shadow var(--klip-motion-fast) var(--klip-motion-ease-out);
+      }
+      .klip-filter-trigger:hover,
+      .klip-done-button:hover,
+      .klip-task-title-button:hover,
+      .klip-collapse-button:hover,
+      .klip-row-action-button:hover {
+        transform: translateY(-1px);
+      }
+      .klip-task-title-button:hover {
+        color: var(--klip-color-primary) !important;
+      }
+      @keyframes klip-table-fade-in {
+        from { opacity: 0; transform: translateY(4px); }
+        to { opacity: 1; transform: translateY(0); }
       }
       .klip-sr-only {
         position: absolute;
@@ -793,18 +872,42 @@ export const TasksTable: React.FC<{
         border: 0;
       }
       @media (prefers-reduced-motion: reduce) {
-        .klip-th-resizer { transition: none; }
+        .klip-table-shell,
+        .klip-th-resizer,
+        .klip-tr > td,
+        .klip-filter-trigger,
+        .klip-done-button,
+        .klip-task-title-button,
+        .klip-collapse-button,
+        .klip-row-action-button {
+          animation: none;
+          transition: none;
+        }
       }
     `
-    document.head.appendChild(style)
   }, [])
 
   const tableWidth = Math.max(table.getCenterTotalSize(), 780)
   const hasFilters = columnFilters.length > 0 || globalFilterInput.trim().length > 0 || statusFilter !== 'all'
 
   return (
-    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0, overflow: 'hidden' }}>
+    <div
+      className="klip-table-shell"
+      style={{
+        flex: 1,
+        display: 'flex',
+        flexDirection: 'column',
+        minHeight: 0,
+        overflow: 'hidden',
+        ['--klip-motion-fast' as string]: token.motionDurationFast,
+        ['--klip-motion-mid' as string]: token.motionDurationMid,
+        ['--klip-motion-ease-out' as string]: token.motionEaseOut,
+        ['--klip-motion-ease-in-out' as string]: token.motionEaseInOut,
+        ['--klip-color-primary' as string]: token.colorPrimary,
+      } as React.CSSProperties}
+    >
       <div
+        className="klip-table-toolbar"
         style={{
           height: 44,
           display: 'flex',
@@ -842,26 +945,23 @@ export const TasksTable: React.FC<{
           value={tableSize}
           onChange={setTableSize}
           style={{ width: 120 }}
-          options={[
-            { label: 'Compacto', value: 'compact' },
-            { label: 'Padrão', value: 'default' },
-            { label: 'Confortável', value: 'comfortable' },
-          ]}
+          options={TASK_TABLE_SIZE_OPTIONS}
         />
       </div>
 
       <div
+        className="klip-table-scroll"
         ref={scrollAreaRef}
         style={{
           flex: 1,
           overflowY: 'auto',
           overflowX: 'auto',
           minHeight: 0,
-          ['--klip-row-hover' as string]: rowHover,
-        } as React.CSSProperties}
+        }}
       >
         <table
           aria-label="Tabela de tarefas"
+          className="klip-task-table"
           style={{
             width: tableWidth,
             minWidth: '100%',
@@ -882,13 +982,9 @@ export const TasksTable: React.FC<{
                   const columnId = header.column.id
                   const canSort = header.column.getCanSort()
                   const sortDirection = header.column.getIsSorted()
-                  const isLeftSticky = columnId === 'done' || columnId === 'title'
+                  const isLeftSticky = columnId === 'done'
                   const isRightSticky = columnId === 'actions'
-                  const stickyLeft = columnId === 'done'
-                    ? 0
-                    : columnId === 'title'
-                      ? table.getColumn('done')?.getSize() ?? 52
-                      : undefined
+                  const stickyLeft = isLeftSticky ? 0 : undefined
                   const isFilterable =
                     columnId === 'title' ||
                     columnId === 'project' ||
@@ -918,7 +1014,7 @@ export const TasksTable: React.FC<{
                       value={getColumnFilter(columnId)}
                       onChange={value => setColumnFilter(columnId, value)}
                       style={{ width: 170 }}
-                      options={projects.map(project => ({ value: project.name, label: project.name }))}
+                      options={projectFilterOptions}
                     />
                   ) : (
                     <Input
@@ -952,11 +1048,9 @@ export const TasksTable: React.FC<{
                         backgroundClip: 'padding-box',
                         borderBottom: `2px solid ${border}`,
                         borderRight: `1px solid ${border}`,
-                        boxShadow: columnId === 'title'
-                          ? `4px 0 12px -6px rgba(0,0,0,0.35), ${headerShadow}`
-                          : isRightSticky
+                        boxShadow: isRightSticky
                             ? `-4px 0 12px -6px rgba(0,0,0,0.35), ${headerShadow}`
-                            : columnId === 'done'
+                            : isLeftSticky
                               ? `2px 0 8px -4px rgba(0,0,0,0.30), ${headerShadow}`
                               : undefined,
                         fontSize: 12,
@@ -1002,15 +1096,14 @@ export const TasksTable: React.FC<{
                         )}
 
                         {isFilterable && (
-                          <Tooltip
-                            title={<div style={{ padding: 4 }} onClick={event => event.stopPropagation()}>{filterControl}</div>}
+                          <Popover
+                            content={<div style={{ padding: 4 }} onClick={event => event.stopPropagation()}>{filterControl}</div>}
                             trigger="click"
                             open={activeFilterCol === columnId}
                             onOpenChange={open => setActiveFilterCol(open ? columnId : null)}
-                            color={isDark ? '#1f1f1f' : '#fff'}
-                            styles={{ container: { padding: 8 } }}
                           >
                             <button
+                              className="klip-filter-trigger"
                               aria-label={`Filtrar ${accessibleColumnLabel}`}
                               onClick={event => {
                                 event.stopPropagation()
@@ -1033,7 +1126,7 @@ export const TasksTable: React.FC<{
                             >
                               <FilterOutlined style={{ fontSize: 10 }} />
                             </button>
-                          </Tooltip>
+                          </Popover>
                         )}
                       </div>
 
@@ -1056,25 +1149,33 @@ export const TasksTable: React.FC<{
             {virtualRows.map(virtualRow => {
               const row = rows[virtualRow.index]
               if (!row) return null
+              const rowBg = row.original.status === 'done'
+                ? doneBg
+                : row.original.depth > 0 ? childBg : bodyBg
+              const rowHoverBg = row.original.status === 'done'
+                ? doneHoverBg
+                : row.original.depth > 0 ? childHoverBg : bodyHoverBg
 
               return (
-                <tr key={row.id} className="klip-tr">
+                <tr
+                  key={row.id}
+                  className="klip-tr"
+                  style={{
+                    ['--klip-row-bg' as string]: rowBg,
+                    ['--klip-row-hover-bg' as string]: rowHoverBg,
+                  } as React.CSSProperties}
+                >
                   {row.getVisibleCells().map(cell => {
                     const columnId = cell.column.id
-                    const isLeftSticky = columnId === 'done' || columnId === 'title'
+                    const isLeftSticky = columnId === 'done'
                     const isRightSticky = columnId === 'actions'
-                    const stickyLeft = columnId === 'done'
-                      ? 0
-                      : columnId === 'title'
-                        ? table.getColumn('done')?.getSize() ?? 52
-                        : undefined
-                    const cellBg = row.original.status === 'done'
-                      ? doneBg
-                      : row.original.depth > 0 ? childBg : bodyBg
+                    const stickyLeft = isLeftSticky ? 0 : undefined
+                    const cellBg = rowBg
 
                     return (
                       <td
                         key={cell.id}
+                        className={isLeftSticky || isRightSticky ? 'klip-td-sticky' : undefined}
                         style={{
                           position: isLeftSticky || isRightSticky ? 'sticky' : undefined,
                           left: isLeftSticky ? stickyLeft : undefined,
@@ -1084,11 +1185,9 @@ export const TasksTable: React.FC<{
                           padding: '0 10px',
                           borderBottom: `1px solid ${border}`,
                           borderRight: `1px solid ${border}`,
-                          boxShadow: columnId === 'title'
-                            ? '4px 0 12px -6px rgba(0,0,0,0.35)'
-                            : isRightSticky
+                          boxShadow: isRightSticky
                               ? '-4px 0 12px -6px rgba(0,0,0,0.35)'
-                              : columnId === 'done'
+                              : isLeftSticky
                                 ? '2px 0 8px -4px rgba(0,0,0,0.30)'
                                 : undefined,
                           overflow: 'hidden',

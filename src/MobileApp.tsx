@@ -4,9 +4,12 @@ import {
   Drawer,
   Empty,
   FloatButton,
+  List,
+  Popconfirm,
   Segmented,
   Space,
   Typography,
+  theme as antTheme,
 } from 'antd'
 import {
   CheckSquareOutlined,
@@ -187,15 +190,23 @@ const TaskCard = React.memo<{
             onClick={() => onEdit(task)}
             style={{ width: 36, height: 36, padding: 0 }}
           />
-          <Button
-            type="text"
-            size="small"
-            danger
-            icon={<DeleteOutlined />}
-            aria-label={`Remover ${task.title}`}
-            onClick={() => onDelete(task.id)}
-            style={{ width: 36, height: 36, padding: 0 }}
-          />
+          <Popconfirm
+            title="Remover tarefa?"
+            description={`"${task.title}" será removida.`}
+            okText="Remover"
+            cancelText="Cancelar"
+            okButtonProps={{ danger: true }}
+            onConfirm={() => onDelete(task.id)}
+          >
+            <Button
+              type="text"
+              size="small"
+              danger
+              icon={<DeleteOutlined />}
+              aria-label={`Remover ${task.title}`}
+              style={{ width: 36, height: 36, padding: 0 }}
+            />
+          </Popconfirm>
         </Space>
       </div>
 
@@ -379,9 +390,20 @@ const MobileProjectsList: React.FC<{
 }> = ({ onSelectProject, onNewProject, onEditProject }) => {
   const { projects, tasks, deleteProject } = useAppData()
   const { isDark } = useTheme()
-  const border = isDark ? '#3a3a3a' : '#f0f0f0'
-  const bg = isDark ? '#1e1e1e' : '#fff'
-  const headerBg = isDark ? '#161616' : '#fafafa'
+  const { token } = antTheme.useToken()
+  const border = token.colorBorderSecondary
+  const headerBg = isDark ? token.colorBgContainer : token.colorFillAlter
+  const projectTaskCounts = useMemo(() => {
+    const counts = new Map(projects.map(project => [project.id, 0]))
+
+    tasks.forEach(task => {
+      getTaskProjectIds(task).forEach(projectId => {
+        if (counts.has(projectId)) counts.set(projectId, (counts.get(projectId) ?? 0) + 1)
+      })
+    })
+
+    return counts
+  }, [projects, tasks])
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
@@ -398,55 +420,62 @@ const MobileProjectsList: React.FC<{
           Novo
         </Button>
       </div>
-      {!projects.length && (
-        <div style={{ padding: 40, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <Empty description="Nenhum projeto" />
-        </div>
-      )}
-      {projects.map(p => {
-        const count = tasks.filter(t => taskBelongsToProject(t, p.id)).length
-        return (
-          <div
-            key={p.id}
-            style={{
-              background: bg,
-              borderBottom: `1px solid ${border}`,
-              padding: '14px 16px',
-              display: 'flex',
-              alignItems: 'center',
-              gap: 12,
-            }}
-          >
-            <span
-              style={{ display: 'inline-block', width: 12, height: 12, background: p.color, borderRadius: 3, flexShrink: 0 }}
-            />
-            <button
-              type="button"
-              aria-label={`Abrir projeto ${p.name}`}
-              onClick={() => onSelectProject(p.id)}
-              style={{
-                flex: 1,
-                border: 0,
-                background: 'transparent',
-                color: 'inherit',
-                cursor: 'pointer',
-                padding: 0,
-                textAlign: 'left',
-              }}
+      <List
+        dataSource={projects}
+        locale={{ emptyText: <Empty description="Nenhum projeto" /> }}
+        style={{ background: token.colorBgContainer }}
+        renderItem={(project) => {
+          const count = projectTaskCounts.get(project.id) ?? 0
+
+          return (
+            <List.Item
+              actions={[
+                <Button key="edit" type="text" size="small" icon={<EditOutlined />} aria-label={`Editar ${project.name}`} onClick={() => onEditProject(project)} />,
+                <Popconfirm
+                  key="delete"
+                  title="Excluir projeto?"
+                  description={`"${project.name}" será removido.`}
+                  okText="Excluir"
+                  cancelText="Cancelar"
+                  okButtonProps={{ danger: true }}
+                  onConfirm={() => { void deleteProject(project.id) }}
+                >
+                  <Button type="text" size="small" danger icon={<DeleteOutlined />} aria-label={`Excluir ${project.name}`} />
+                </Popconfirm>,
+              ]}
+              style={{ padding: '14px 16px', borderBlockEnd: `1px solid ${border}` }}
             >
-              <Text strong style={{ fontSize: 14 }}>{p.name}</Text>
-              {p.description && (
-                <Text type="secondary" style={{ fontSize: 12, display: 'block' }}>{p.description}</Text>
-              )}
-            </button>
-            <Text type="secondary" style={{ fontSize: 12, flexShrink: 0 }}>{count} tarefas</Text>
-            <Space size={2}>
-              <Button type="text" size="small" icon={<EditOutlined />} aria-label={`Editar ${p.name}`} onClick={() => onEditProject(p)} />
-              <Button type="text" size="small" danger icon={<DeleteOutlined />} aria-label={`Excluir ${p.name}`} onClick={() => { void deleteProject(p.id) }} />
-            </Space>
-          </div>
-        )
-      })}
+              <List.Item.Meta
+                avatar={<span style={{ display: 'inline-block', width: 12, height: 12, background: project.color, borderRadius: 3, marginTop: 4 }} />}
+                title={(
+                  <button
+                    type="button"
+                    aria-label={`Abrir projeto ${project.name}`}
+                    onClick={() => onSelectProject(project.id)}
+                    style={{
+                      border: 0,
+                      background: 'transparent',
+                      color: 'inherit',
+                      cursor: 'pointer',
+                      padding: 0,
+                      textAlign: 'left',
+                      font: 'inherit',
+                    }}
+                  >
+                    <Text strong style={{ fontSize: 14 }}>{project.name}</Text>
+                  </button>
+                )}
+                description={(
+                  <Space orientation="vertical" size={2} style={{ minWidth: 0 }}>
+                    {project.description ? <Text type="secondary" style={{ fontSize: 12 }}>{project.description}</Text> : null}
+                    <Text type="secondary" style={{ fontSize: 12 }}>{count} tarefas</Text>
+                  </Space>
+                )}
+              />
+            </List.Item>
+          )
+        }}
+      />
     </div>
   )
 }
@@ -458,48 +487,29 @@ const MobileSettingsView: React.FC<{
   onSectionChange: (section: 'user' | 'customfields') => void
 }> = ({ section, onSectionChange }) => {
   const { isDark } = useTheme()
-  const border = isDark ? '#3a3a3a' : '#f0f0f0'
-  const headerBg = isDark ? '#161616' : '#fafafa'
-  const activeSectionColor = isDark ? '#8b8df8' : '#4f46e5'
+  const { token } = antTheme.useToken()
+  const border = token.colorBorderSecondary
+  const headerBg = isDark ? token.colorBgContainer : token.colorFillAlter
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
       {/* tab switcher */}
-      <div style={{
-        display: 'flex',
-        borderBottom: `1px solid ${border}`,
-        background: headerBg,
-        flexShrink: 0,
-      }}>
-        {([
-          { key: 'user', icon: <UserOutlined />, label: 'Usuário' },
-          { key: 'customfields', icon: <DatabaseOutlined />, label: 'Campos' },
-        ] as const).map(item => (
-          <button
-            key={item.key}
-            onClick={() => onSectionChange(item.key)}
-            style={{
-              flex: 1,
-              padding: '12px 8px',
-              border: 'none',
-              borderBottom: section === item.key ? `2px solid ${activeSectionColor}` : '2px solid transparent',
-              background: 'transparent',
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              gap: 6,
-              color: section === item.key ? activeSectionColor : (isDark ? 'rgba(255,255,255,0.68)' : '#595959'),
-              fontSize: 13,
-              fontWeight: section === item.key ? 600 : 400,
-              transition: 'color 0.2s',
-            }}
-          >
-            {item.icon}
-            {item.label}
-          </button>
-        ))}
-      </div>
+      <Segmented
+        block
+        value={section}
+        onChange={value => onSectionChange(value as 'user' | 'customfields')}
+        options={[
+          { value: 'user', label: <Space size={6}><UserOutlined />Usuário</Space> },
+          { value: 'customfields', label: <Space size={6}><DatabaseOutlined />Campos</Space> },
+        ]}
+        style={{
+          borderRadius: 0,
+          borderBottom: `1px solid ${border}`,
+          background: headerBg,
+          flexShrink: 0,
+          padding: 6,
+        }}
+      />
       <div style={{ flex: 1, overflowY: 'auto', padding: 12, display: 'flex', flexDirection: 'column' }}>
         {section === 'user' ? <UserSettingsView /> : <CustomFieldsSettingsView />}
       </div>
@@ -546,7 +556,11 @@ const MobileApp: React.FC = () => {
   const activeColor = isDark ? '#8b8df8' : '#4f46e5'
   const inactiveColor = isDark ? 'rgba(255,255,255,0.68)' : 'rgba(0,0,0,0.62)'
 
-  const currentProject = projects.find(p => p.id === filterPid)
+  const projectById = useMemo(
+    () => new Map(projects.map(project => [project.id, project])),
+    [projects],
+  )
+  const currentProject = filterPid ? projectById.get(filterPid) : undefined
 
   const handleSelectProject = (pid: string) => {
     navigate({ view: 'project', projectId: pid })
@@ -736,6 +750,7 @@ const MobileApp: React.FC = () => {
         onClose={() => setProjDrawerOpen(false)}
         placement="left"
         size="min(86vw, 280px)"
+        mask={{ closable: true }}
       >
         <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
           <button

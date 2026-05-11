@@ -17,6 +17,7 @@ import {
   Drawer,
   Form,
   Input,
+  Popconfirm,
   Select,
   DatePicker,
   Tag,
@@ -61,7 +62,6 @@ import {
   PlusOutlined,
 } from '@ant-design/icons'
 import { AuthProvider } from './contexts/AuthContext'
-import { TasksTable } from './components/TasksTable'
 import { useAuth } from './contexts/authState'
 import {
   AppDataContext,
@@ -76,9 +76,9 @@ import {
 import { useKlipData } from './hooks/useKlipData'
 import { useAppRoute } from './hooks/useAppRoute'
 import { useUserPreference } from './hooks/useUserPreference'
-import { taskBelongsToProject } from './lib/klipAdapters'
 import { getRouteMenuKey, ROUTE_CHANGE_EVENT } from './lib/routes'
 import { matchesSearchText, normalizeSearchText } from './lib/search'
+import { getTaskProjectIds } from './lib/taskDisplay'
 import {
   PROJECT_COLORS,
   getContrastColor,
@@ -87,6 +87,11 @@ import type { CustomField, FieldType, Project, Task, TaskStatus } from './types/
 
 const { Header, Content, Footer } = Layout
 const { Text } = Typography
+
+const TasksTable = React.lazy(() =>
+  import('./components/TasksTable').then(module => ({ default: module.TasksTable })),
+)
+const MobileApp = React.lazy(() => import('./MobileApp'))
 
 dayjs.locale('pt-br')
 
@@ -237,6 +242,51 @@ interface TaskFormValues {
   customFieldValues?: Record<string, unknown>
 }
 
+interface ProjectFormValues {
+  name: string
+  description?: string
+  color?: string
+  cfIds?: string[]
+}
+
+interface CustomFieldFormValues {
+  name: string
+  type: FieldType
+  scope: 'universal' | 'project'
+  projectIds?: string[]
+  options?: string
+}
+
+const BOOLEAN_FIELD_OPTIONS = [
+  { value: 'true', label: 'Sim' },
+  { value: 'false', label: 'Não' },
+]
+
+const FIELD_TYPE_OPTIONS = [
+  { value: 'text', label: 'Texto' },
+  { value: 'number', label: 'Número' },
+  { value: 'date', label: 'Data' },
+  { value: 'checkbox', label: 'Checkbox' },
+  { value: 'select', label: 'Seleção' },
+]
+
+const FIELD_SCOPE_OPTIONS = [
+  { value: 'project', label: 'Por projeto (vinculado manualmente)' },
+  { value: 'universal', label: 'Universal (todas as tarefas)' },
+]
+
+const LLM_PROVIDER_OPTIONS = [
+  { value: 'openai', label: 'OpenAI' },
+  { value: 'anthropic', label: 'Anthropic' },
+  { value: 'ollama', label: 'Ollama (local)' },
+]
+
+const LLM_MODEL_OPTIONS = [
+  { value: 'gpt-4o', label: 'GPT-4o' },
+  { value: 'gpt-4o-mini', label: 'GPT-4o mini' },
+  { value: 'claude-3-5-sonnet', label: 'claude-3-5-sonnet' },
+]
+
 const getTaskCustomFieldValue = (values: Record<string, unknown>, field: CustomField) => {
   const candidateKeys = [field.id, field.name, normalizeSearchText(field.name)]
 
@@ -258,9 +308,31 @@ export const TaskDrawer: React.FC<{
 }> = ({ open, onClose, editingTask, defaultProjectId, defaultParentTaskId, defaultDueDate }) => {
   const { tasks, projects, customFields, addTask, updateTask } = useAppData()
   const [form] = Form.useForm<TaskFormValues>()
+  const [submitting, setSubmitting] = useState(false)
   const watchedProjectId = Form.useWatch('projectId', form) as string | undefined
   const selectedProjectId = watchedProjectId ?? defaultProjectId ?? ''
-  const projFields = customFields.filter(f => f.scope === 'universal' || f.projectIds.includes(selectedProjectId))
+  const projFields = useMemo(
+    () => customFields.filter(f => f.scope === 'universal' || f.projectIds.includes(selectedProjectId)),
+    [customFields, selectedProjectId],
+  )
+  const projectOptions = useMemo(
+    () => projects.map(project => ({
+      value: project.id,
+      label: (
+        <Space>
+          <span style={{ display: 'inline-block', width: 8, height: 8, background: project.color }} />
+          {project.name}
+        </Space>
+      ),
+    })),
+    [projects],
+  )
+  const parentTaskOptions = useMemo(
+    () => tasks
+      .filter(task => task.id !== editingTask?.id)
+      .map(task => ({ value: task.id, label: task.title })),
+    [editingTask?.id, tasks],
+  )
   const handleClose = useCallback(() => {
     form.resetFields()
     onClose()
@@ -294,9 +366,9 @@ export const TaskDrawer: React.FC<{
     }
   }, [open, editingTask, defaultProjectId, defaultParentTaskId, defaultDueDate, customFields, form])
 
-  const handleSubmit = async () => {
-    const values = await form.validateFields().catch(() => undefined)
-    if (!values) return
+  const handleSubmit = async (values: TaskFormValues) => {
+    if (submitting) return
+    setSubmitting(true)
     const projectIds = values.projectId ? [values.projectId] : []
     const activeFieldIds = new Set(projFields.map(field => field.id))
     const customFieldValues = Object.fromEntries(
@@ -320,12 +392,18 @@ export const TaskDrawer: React.FC<{
       dueDate: values.dueDate ? values.dueDate.format('YYYY-MM-DD') : undefined,
       customFieldValues,
     }
-    if (editingTask) {
-      await updateTask(editingTask.id, processed)
-    } else {
-      await addTask(processed)
+    try {
+      if (editingTask) {
+        await updateTask(editingTask.id, processed)
+      } else {
+        await addTask(processed)
+      }
+      handleClose()
+    } catch {
+      // API hooks already surface the failure through notifications.
+    } finally {
+      setSubmitting(false)
     }
-    handleClose()
   }
 
   return (
@@ -336,20 +414,20 @@ export const TaskDrawer: React.FC<{
       size="min(100vw, 460px)"
       destroyOnHidden
       keyboard
-      maskClosable
+      mask={{ closable: true }}
       afterOpenChange={(visible) => {
         if (!visible) form.resetFields()
       }}
       footer={
         <Space style={{ display: 'flex', justifyContent: 'flex-end' }}>
-          <Button onClick={handleClose}>Cancelar</Button>
-          <Button type="primary" onClick={handleSubmit}>
+          <Button onClick={handleClose} disabled={submitting}>Cancelar</Button>
+          <Button type="primary" htmlType="submit" form="task-drawer-form" loading={submitting}>
             {editingTask ? 'Salvar alterações' : 'Criar Tarefa'}
           </Button>
         </Space>
       }
     >
-      <Form form={form} layout="vertical">
+      <Form id="task-drawer-form" form={form} layout="vertical" onFinish={handleSubmit}>
         <Form.Item name="title" label="Título" htmlFor="task-title" rules={[{ required: true, message: 'Informe o título' }]}>
           <Input id="task-title" name="task-title" autoComplete="off" placeholder="Título da tarefa" />
         </Form.Item>
@@ -359,16 +437,7 @@ export const TaskDrawer: React.FC<{
         <Row gutter={16}>
           <Col xs={24} sm={12}>
             <Form.Item name="projectId" label="Projeto">
-              <Select allowClear placeholder="Sem projeto vinculado">
-                {projects.map(p => (
-                  <Select.Option key={p.id} value={p.id}>
-                    <Space>
-                      <span style={{ display: 'inline-block', width: 8, height: 8, background: p.color }} />
-                      {p.name}
-                    </Space>
-                  </Select.Option>
-                ))}
-              </Select>
+              <Select allowClear placeholder="Sem projeto vinculado" options={projectOptions} />
             </Form.Item>
           </Col>
           <Col xs={24} sm={12}>
@@ -380,12 +449,9 @@ export const TaskDrawer: React.FC<{
         <Form.Item name="parentTaskId" label="Subtarefa de">
           <Select
             allowClear
-            showSearch
+            showSearch={{ optionFilterProp: 'label' }}
             placeholder="Nenhuma tarefa pai"
-            optionFilterProp="label"
-            options={tasks
-              .filter(task => task.id !== editingTask?.id)
-              .map(task => ({ value: task.id, label: task.title }))}
+            options={parentTaskOptions}
           />
         </Form.Item>
         <Form.Item name="assignee" label="Responsável" htmlFor="task-assignee">
@@ -416,15 +482,10 @@ export const TaskDrawer: React.FC<{
                 {f.type === 'number' && <InputNumber style={{ width: '100%' }} />}
                 {f.type === 'date' && <DatePicker id={`task-custom-field-${f.id}`} name={`task-custom-field-${f.id}`} style={{ width: '100%' }} format="DD/MM/YYYY" />}
                 {f.type === 'checkbox' && (
-                  <Select>
-                    <Select.Option value="true">Sim</Select.Option>
-                    <Select.Option value="false">Não</Select.Option>
-                  </Select>
+                  <Select options={BOOLEAN_FIELD_OPTIONS} />
                 )}
                 {f.type === 'select' && (
-                  <Select>
-                    {f.options?.map(o => <Select.Option key={o} value={o}>{o}</Select.Option>)}
-                  </Select>
+                  <Select options={f.options?.map(option => ({ value: option, label: option }))} />
                 )}
               </Form.Item>
             ))}
@@ -443,7 +504,22 @@ export const ProjectDrawer: React.FC<{
   editingProject: Project | null
 }> = ({ open, onClose, editingProject }) => {
   const { customFields, addProject, updateProject, setProjectFields } = useAppData()
-  const [form] = Form.useForm()
+  const [form] = Form.useForm<ProjectFormValues>()
+  const [submitting, setSubmitting] = useState(false)
+  const projectCustomFieldOptions = useMemo(
+    () => customFields
+      .filter(field => field.scope === 'project')
+      .map(field => ({
+        value: field.id,
+        label: (
+          <Space size={4}>
+            <span>{field.name}</span>
+            <Text type="secondary" style={{ fontSize: 11 }}>({field.type})</Text>
+          </Space>
+        ),
+      })),
+    [customFields],
+  )
   const handleClose = useCallback(() => {
     form.resetFields()
     onClose()
@@ -464,25 +540,31 @@ export const ProjectDrawer: React.FC<{
     }
   }, [open, editingProject, form, customFields])
 
-  const handleSubmit = async () => {
-    const values = await form.validateFields().catch(() => undefined)
-    if (!values) return
-    if (editingProject) {
-      await updateProject(editingProject.id, {
-        name: values.name,
-        color: values.color,
-        description: values.description,
-      })
-      await setProjectFields(editingProject.id, values.cfIds ?? [])
-    } else {
-      const newProj = await addProject({
-        name: values.name,
-        color: values.color ?? PROJECT_COLORS[0],
-        description: values.description ?? '',
-      })
-      await setProjectFields(newProj.id, values.cfIds ?? [])
+  const handleSubmit = async (values: ProjectFormValues) => {
+    if (submitting) return
+    setSubmitting(true)
+    try {
+      if (editingProject) {
+        await updateProject(editingProject.id, {
+          name: values.name,
+          color: values.color,
+          description: values.description,
+        })
+        await setProjectFields(editingProject.id, values.cfIds ?? [])
+      } else {
+        const newProj = await addProject({
+          name: values.name,
+          color: values.color ?? PROJECT_COLORS[0],
+          description: values.description ?? '',
+        })
+        await setProjectFields(newProj.id, values.cfIds ?? [])
+      }
+      handleClose()
+    } catch {
+      // API hooks already surface the failure through notifications.
+    } finally {
+      setSubmitting(false)
     }
-    handleClose()
   }
 
   return (
@@ -493,20 +575,20 @@ export const ProjectDrawer: React.FC<{
       size="min(100vw, 440px)"
       destroyOnHidden
       keyboard
-      maskClosable
+      mask={{ closable: true }}
       afterOpenChange={(visible) => {
         if (!visible) form.resetFields()
       }}
       footer={
         <Space style={{ display: 'flex', justifyContent: 'flex-end' }}>
-          <Button onClick={handleClose}>Cancelar</Button>
-          <Button type="primary" onClick={handleSubmit}>
+          <Button onClick={handleClose} disabled={submitting}>Cancelar</Button>
+          <Button type="primary" htmlType="submit" form="project-drawer-form" loading={submitting}>
             {editingProject ? 'Salvar alterações' : 'Criar Projeto'}
           </Button>
         </Space>
       }
     >
-      <Form form={form} layout="vertical">
+      <Form id="project-drawer-form" form={form} layout="vertical" onFinish={handleSubmit}>
         <Form.Item name="name" label="Nome do Projeto" htmlFor="project-name" rules={[{ required: true, message: 'Informe o nome' }]}>
           <Input id="project-name" name="project-name" autoComplete="off" placeholder="ex: Frontend v2" />
         </Form.Item>
@@ -529,14 +611,7 @@ export const ProjectDrawer: React.FC<{
           label="Campos Personalizados"
           extra="Campos com escopo Universal estão disponíveis em todos os projetos automaticamente."
         >
-          <Select mode="multiple" placeholder="Selecione campos por projeto...">
-            {customFields.filter(f => f.scope === 'project').map(f => (
-              <Select.Option key={f.id} value={f.id}>
-                {f.name}{' '}
-                <Text type="secondary" style={{ fontSize: 11 }}>({f.type})</Text>
-              </Select.Option>
-            ))}
-          </Select>
+          <Select mode="multiple" placeholder="Selecione campos por projeto..." options={projectCustomFieldOptions} />
         </Form.Item>
       </Form>
     </Drawer>
@@ -951,11 +1026,33 @@ export const CalendarView: React.FC<{ compact?: boolean }> = ({ compact = false 
 
 interface ApiToken { id: string; name: string; prefix: string; createdAt: string }
 
+const SettingsCard: React.FC<{
+  title: React.ReactNode
+  extra?: React.ReactNode
+  children: React.ReactNode
+  bodyStyle?: React.CSSProperties
+}> = ({ title, extra, children, bodyStyle }) => {
+  const { token } = antTheme.useToken()
+
+  return (
+    <Card
+      size="small"
+      title={title}
+      extra={extra}
+      style={{ borderColor: token.colorBorderSecondary }}
+      styles={{
+        header: { minHeight: 42, paddingInline: 16 },
+        body: { padding: 16, ...bodyStyle },
+      }}
+    >
+      {children}
+    </Card>
+  )
+}
+
 export const UserSettingsView: React.FC = () => {
   const { isDark, toggle } = useTheme()
   const { logout } = useAuth()
-  const cardBg = isDark ? '#1e1e1e' : '#fff'
-  const border = isDark ? '#3a3a3a' : '#f0f0f0'
 
   const tokenColumns = [
     { title: 'Nome', dataIndex: 'name', key: 'name' },
@@ -984,132 +1081,116 @@ export const UserSettingsView: React.FC = () => {
         )}
       />
       {/* Preferências */}
-      <div style={{ background: cardBg, border: `1px solid ${border}` }}>
-        <div style={{ padding: '10px 16px', borderBottom: `1px solid ${border}`, display: 'flex', alignItems: 'center', flexShrink: 0 }}>
-          <Text strong style={{ fontSize: 13 }}>Preferências</Text>
+      <SettingsCard title={<Text strong style={{ fontSize: 13 }}>Preferências</Text>}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap' }}>
+          <Space orientation="vertical" size={0}>
+            <Text style={{ fontSize: 13 }}>Tema</Text>
+            <Text type="secondary" style={{ fontSize: 12 }}>{isDark ? 'Modo escuro ativado' : 'Modo claro ativado'}</Text>
+          </Space>
+          <Button
+            type={isDark ? 'default' : 'primary'}
+            size="small"
+            icon={isDark ? <SunOutlined /> : <MoonOutlined />}
+            onClick={toggle}
+          >
+            {isDark ? 'Modo claro' : 'Modo escuro'}
+          </Button>
         </div>
-        <div style={{ padding: 16 }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <Space orientation="vertical" size={0}>
-              <Text style={{ fontSize: 13 }}>Tema</Text>
-              <Text type="secondary" style={{ fontSize: 12 }}>{isDark ? 'Modo escuro ativado' : 'Modo claro ativado'}</Text>
-            </Space>
-            <Button
-              type={isDark ? 'default' : 'primary'}
-              size="small"
-              icon={isDark ? <SunOutlined /> : <MoonOutlined />}
-              onClick={toggle}
-            >
-              {isDark ? 'Modo claro' : 'Modo escuro'}
-            </Button>
-          </div>
-        </div>
-      </div>
+      </SettingsCard>
 
       {/* Profile */}
-      <div style={{ background: cardBg, border: `1px solid ${border}` }}>
-        <div style={{ padding: '10px 16px', borderBottom: `1px solid ${border}`, display: 'flex', alignItems: 'center', flexShrink: 0 }}>
+      <SettingsCard
+        title={(
           <Space size={8}>
             <Text strong style={{ fontSize: 13 }}>Perfil</Text>
             <Tag style={{ margin: 0 }}>Em desenvolvimento</Tag>
           </Space>
-        </div>
-        <div style={{ padding: 16 }}>
-          <Space size={24} align="start">
-            <Avatar size={72} icon={<UserOutlined />} style={{ background: '#4f46e5', flexShrink: 0 }} />
-            <Form layout="vertical" style={{ flex: 1 }} name="profile-settings-form">
-              <Row gutter={16}>
-                <Col xs={24} sm={12}>
-                  <Form.Item label="Nome completo" htmlFor="profile-full-name">
-                    <Input id="profile-full-name" name="profile-full-name" autoComplete="name" disabled placeholder="Em desenvolvimento" />
-                  </Form.Item>
-                </Col>
-                <Col xs={24} sm={12}>
-                  <Form.Item label="E-mail" htmlFor="profile-email">
-                    <Input id="profile-email" name="profile-email" autoComplete="email" disabled placeholder="Em desenvolvimento" />
-                  </Form.Item>
-                </Col>
-              </Row>
-              <Button type="primary" disabled>Salvar perfil</Button>
-            </Form>
-          </Space>
-        </div>
-      </div>
+        )}
+      >
+        <Space size={24} align="start" wrap>
+          <Avatar size={72} icon={<UserOutlined />} style={{ background: '#4f46e5', flexShrink: 0 }} />
+          <Form layout="vertical" style={{ flex: '1 1 320px', minWidth: 0 }} name="profile-settings-form">
+            <Row gutter={16}>
+              <Col xs={24} sm={12}>
+                <Form.Item label="Nome completo" htmlFor="profile-full-name">
+                  <Input id="profile-full-name" name="profile-full-name" autoComplete="name" disabled placeholder="Em desenvolvimento" />
+                </Form.Item>
+              </Col>
+              <Col xs={24} sm={12}>
+                <Form.Item label="E-mail" htmlFor="profile-email">
+                  <Input id="profile-email" name="profile-email" autoComplete="email" disabled placeholder="Em desenvolvimento" />
+                </Form.Item>
+              </Col>
+            </Row>
+            <Button type="primary" disabled>Salvar perfil</Button>
+          </Form>
+        </Space>
+      </SettingsCard>
 
       {/* Account links */}
-      <div style={{ background: cardBg, border: `1px solid ${border}` }}>
-        <div style={{ padding: '10px 16px', borderBottom: `1px solid ${border}`, display: 'flex', alignItems: 'center', flexShrink: 0 }}>
+      <SettingsCard
+        title={(
           <Space size={8}>
             <Text strong style={{ fontSize: 13 }}>Contas vinculadas</Text>
             <Tag style={{ margin: 0 }}>Em desenvolvimento</Tag>
           </Space>
-        </div>
-        <div style={{ padding: 16 }}>
-          <Space orientation="vertical" style={{ width: '100%' }} size={16}>
-            {[
-              { icon: <GithubOutlined />, label: 'GitHub' },
-              { icon: <GlobalOutlined />, label: 'Google' },
-              { icon: <LinkOutlined />, label: 'Microsoft' },
-            ].map(item => (
-              <div key={item.label} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                <Space>
-                  {item.icon}
-                  <Text>{item.label}</Text>
-                </Space>
-                <Button size="small" disabled>Vincular</Button>
-              </div>
-            ))}
-          </Space>
-        </div>
-      </div>
+        )}
+      >
+        <Space orientation="vertical" style={{ width: '100%' }} size={16}>
+          {[
+            { icon: <GithubOutlined />, label: 'GitHub' },
+            { icon: <GlobalOutlined />, label: 'Google' },
+            { icon: <LinkOutlined />, label: 'Microsoft' },
+          ].map(item => (
+            <div key={item.label} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+              <Space>
+                {item.icon}
+                <Text>{item.label}</Text>
+              </Space>
+              <Button size="small" disabled>Vincular</Button>
+            </div>
+          ))}
+        </Space>
+      </SettingsCard>
 
       {/* API Tokens */}
-      <div style={{ background: cardBg, border: `1px solid ${border}` }}>
-        <div style={{ padding: '10px 16px', borderBottom: `1px solid ${border}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexShrink: 0 }}>
+      <SettingsCard
+        title={(
           <Space size={8}>
             <Text strong style={{ fontSize: 13 }}>Tokens de API</Text>
             <Tag style={{ margin: 0 }}>Em desenvolvimento</Tag>
           </Space>
-          <Button size="small" type="primary" disabled>Novo token</Button>
-        </div>
-        <div style={{ padding: 16 }}>
-          <Table
-            dataSource={[] as ApiToken[]}
-            columns={tokenColumns}
-            rowKey="id"
-            pagination={false}
-            size="small"
-          />
-        </div>
-      </div>
+        )}
+        extra={<Button size="small" type="primary" disabled>Novo token</Button>}
+      >
+        <Table
+          dataSource={[] as ApiToken[]}
+          columns={tokenColumns}
+          rowKey="id"
+          pagination={false}
+          size="small"
+        />
+      </SettingsCard>
 
       {/* LLM Settings */}
-      <div style={{ background: cardBg, border: `1px solid ${border}` }}>
-        <div style={{ padding: '10px 16px', borderBottom: `1px solid ${border}`, display: 'flex', alignItems: 'center', flexShrink: 0 }}>
+      <SettingsCard
+        title={(
           <Space size={8}>
             <Text strong style={{ fontSize: 13 }}>Configurações de LLM</Text>
             <Tag style={{ margin: 0 }}>Em desenvolvimento</Tag>
           </Space>
-        </div>
-        <div style={{ padding: 16 }}>
-          <Form layout="vertical" disabled name="llm-settings-form">
+        )}
+      >
+        <Form layout="vertical" disabled name="llm-settings-form">
             <Row gutter={16}>
               <Col xs={24} sm={12}>
                 <Form.Item label="Provedor">
-                  <Select defaultValue="openai">
-                    <Select.Option value="openai">OpenAI</Select.Option>
-                    <Select.Option value="anthropic">Anthropic</Select.Option>
-                    <Select.Option value="ollama">Ollama (local)</Select.Option>
-                  </Select>
+                  <Select defaultValue="openai" options={LLM_PROVIDER_OPTIONS} />
                 </Form.Item>
               </Col>
               <Col xs={24} sm={12}>
                 <Form.Item label="Modelo">
-                  <Select defaultValue="gpt-4o">
-                    <Select.Option value="gpt-4o">GPT-4o</Select.Option>
-                    <Select.Option value="gpt-4o-mini">GPT-4o mini</Select.Option>
-                    <Select.Option value="claude-3-5-sonnet">claude-3-5-sonnet</Select.Option>
-                  </Select>
+                  <Select defaultValue="gpt-4o" options={LLM_MODEL_OPTIONS} />
                 </Form.Item>
               </Col>
             </Row>
@@ -1120,9 +1201,8 @@ export const UserSettingsView: React.FC = () => {
               <Input.TextArea id="llm-system-prompt" name="llm-system-prompt" autoComplete="off" rows={3} placeholder="Você é um assistente de gestão de projetos..." />
             </Form.Item>
             <Button type="primary" icon={<RobotOutlined />} disabled>Salvar configurações de LLM</Button>
-          </Form>
-        </div>
-      </div>
+        </Form>
+      </SettingsCard>
     </div>
   )
 }
@@ -1144,9 +1224,18 @@ export const CustomFieldsSettingsView: React.FC = () => {
 
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [editingField, setEditingField] = useState<CustomField | null>(null)
-  const [form] = Form.useForm()
+  const [form] = Form.useForm<CustomFieldFormValues>()
+  const [submitting, setSubmitting] = useState(false)
   const [scopeVal, setScopeVal] = useState<'universal' | 'project'>('project')
   const [typeVal, setTypeVal] = useState<FieldType>('text')
+  const projectById = useMemo(
+    () => new Map(projects.map(project => [project.id, project])),
+    [projects],
+  )
+  const projectOptions = useMemo(
+    () => projects.map(project => ({ value: project.id, label: project.name })),
+    [projects],
+  )
   const closeDrawer = useCallback(() => {
     setDrawerOpen(false)
     setEditingField(null)
@@ -1178,25 +1267,32 @@ export const CustomFieldsSettingsView: React.FC = () => {
     setDrawerOpen(true)
   }
 
-  const handleSave = () => {
-    form.validateFields().then((values) => {
-      const opts = values.options
-        ? (values.options as string).split('\n').map((o: string) => o.trim()).filter(Boolean)
-        : undefined
-      const payload: Omit<CustomField, 'id'> = {
-        name: values.name,
-        type: values.type as FieldType,
-        scope: values.scope,
-        projectIds: values.scope === 'project' ? (values.projectIds ?? []) : [],
-        options: opts,
-      }
+  const handleSave = async (values: CustomFieldFormValues) => {
+    if (submitting) return
+    setSubmitting(true)
+    const opts = values.options
+      ? values.options.split('\n').map(option => option.trim()).filter(Boolean)
+      : undefined
+    const payload: Omit<CustomField, 'id'> = {
+      name: values.name,
+      type: values.type,
+      scope: values.scope,
+      projectIds: values.scope === 'project' ? (values.projectIds ?? []) : [],
+      options: opts,
+    }
+
+    try {
       if (editingField) {
-        updateCustomField(editingField.id, payload)
+        await updateCustomField(editingField.id, payload)
       } else {
-        addCustomField(payload)
+        await addCustomField(payload)
       }
       closeDrawer()
-    }).catch(() => undefined)
+    } catch {
+      // API hooks already surface the failure through notifications.
+    } finally {
+      setSubmitting(false)
+    }
   }
 
   const columns = [
@@ -1222,7 +1318,7 @@ export const CustomFieldsSettingsView: React.FC = () => {
         return (
           <Space size={4} wrap>
             {f.projectIds.map(pid => {
-              const p = projects.find(pr => pr.id === pid)
+              const p = projectById.get(pid)
               return p ? <Tag key={pid} style={{ backgroundColor: p.color, color: getContrastColor(p.color), border: 'none' }}>{p.name}</Tag> : null
             })}
           </Space>
@@ -1235,7 +1331,16 @@ export const CustomFieldsSettingsView: React.FC = () => {
       render: (_: unknown, f: CustomField) => (
         <Space>
           <Button size="small" onClick={() => openEdit(f)}>Editar</Button>
-          <Button size="small" danger onClick={() => deleteCustomField(f.id)}>Excluir</Button>
+          <Popconfirm
+            title="Excluir campo?"
+            description={`"${f.name}" será removido.`}
+            okText="Excluir"
+            cancelText="Cancelar"
+            okButtonProps={{ danger: true }}
+            onConfirm={() => { void deleteCustomField(f.id) }}
+          >
+            <Button size="small" danger>Excluir</Button>
+          </Popconfirm>
         </Space>
       ),
     },
@@ -1261,7 +1366,7 @@ export const CustomFieldsSettingsView: React.FC = () => {
         ) : customFields.map(field => {
           const linkedProjects = field.scope === 'universal'
             ? []
-            : field.projectIds.map(projectId => projects.find(project => project.id === projectId)).filter((project): project is Project => Boolean(project))
+            : field.projectIds.map(projectId => projectById.get(projectId)).filter((project): project is Project => Boolean(project))
 
           return (
             <div key={field.id} style={{ background: cardBg, border: `1px solid ${border}`, padding: 12, display: 'flex', flexDirection: 'column', gap: 8 }}>
@@ -1277,7 +1382,16 @@ export const CustomFieldsSettingsView: React.FC = () => {
                 </Space>
                 <Space size={2}>
                   <Button size="small" onClick={() => openEdit(field)} aria-label={`Editar ${field.name}`}>Editar</Button>
-                  <Button size="small" danger style={{ color: '#cf1322' }} onClick={() => deleteCustomField(field.id)} aria-label={`Excluir ${field.name}`}>Excluir</Button>
+                  <Popconfirm
+                    title="Excluir campo?"
+                    description={`"${field.name}" será removido.`}
+                    okText="Excluir"
+                    cancelText="Cancelar"
+                    okButtonProps={{ danger: true }}
+                    onConfirm={() => { void deleteCustomField(field.id) }}
+                  >
+                    <Button size="small" danger style={{ color: '#cf1322' }} aria-label={`Excluir ${field.name}`}>Excluir</Button>
+                  </Popconfirm>
                 </Space>
               </div>
               <div>
@@ -1333,31 +1447,25 @@ export const CustomFieldsSettingsView: React.FC = () => {
         size="min(100vw, 440px)"
         destroyOnHidden
         keyboard
-        maskClosable
+        mask={{ closable: true }}
         afterOpenChange={(visible) => {
           if (!visible) form.resetFields()
         }}
         footer={
           <Space style={{ display: 'flex', justifyContent: 'flex-end' }}>
-            <Button onClick={closeDrawer}>Cancelar</Button>
-            <Button type="primary" onClick={handleSave}>
+            <Button onClick={closeDrawer} disabled={submitting}>Cancelar</Button>
+            <Button type="primary" htmlType="submit" form="custom-field-drawer-form" loading={submitting}>
               {editingField ? 'Salvar alterações' : 'Criar campo'}
             </Button>
           </Space>
         }
       >
-        <Form form={form} layout="vertical">
+        <Form id="custom-field-drawer-form" form={form} layout="vertical" onFinish={handleSave}>
           <Form.Item name="name" label="Nome" htmlFor="custom-field-name" rules={[{ required: true, message: 'Informe o nome' }]}>
             <Input id="custom-field-name" name="custom-field-name" autoComplete="off" placeholder="ex: Story Points" />
           </Form.Item>
           <Form.Item name="type" label="Tipo" rules={[{ required: true }]}>
-            <Select onChange={(v) => setTypeVal(v as FieldType)}>
-              <Select.Option value="text">Texto</Select.Option>
-              <Select.Option value="number">Número</Select.Option>
-              <Select.Option value="date">Data</Select.Option>
-              <Select.Option value="checkbox">Checkbox</Select.Option>
-              <Select.Option value="select">Seleção</Select.Option>
-            </Select>
+            <Select options={FIELD_TYPE_OPTIONS} onChange={(v) => setTypeVal(v as FieldType)} />
           </Form.Item>
           {typeVal === 'select' && (
             <Form.Item
@@ -1370,18 +1478,11 @@ export const CustomFieldsSettingsView: React.FC = () => {
             </Form.Item>
           )}
           <Form.Item name="scope" label="Escopo" rules={[{ required: true }]}>
-            <Select onChange={(v) => setScopeVal(v as 'universal' | 'project')}>
-              <Select.Option value="project">Por projeto (vinculado manualmente)</Select.Option>
-              <Select.Option value="universal">Universal (todas as tarefas)</Select.Option>
-            </Select>
+            <Select options={FIELD_SCOPE_OPTIONS} onChange={(v) => setScopeVal(v as 'universal' | 'project')} />
           </Form.Item>
           {scopeVal === 'project' && (
             <Form.Item name="projectIds" label="Projetos">
-              <Select mode="multiple" placeholder="Selecione os projetos...">
-                {projects.map(p => (
-                  <Select.Option key={p.id} value={p.id}>{p.name}</Select.Option>
-                ))}
-              </Select>
+              <Select mode="multiple" placeholder="Selecione os projetos..." options={projectOptions} />
             </Form.Item>
           )}
         </Form>
@@ -1400,6 +1501,17 @@ const ProjectsOverview: React.FC<{
   const { isDark } = useTheme()
   const border = isDark ? '#3a3a3a' : 'rgba(0,0,0,0.08)'
   const cardBg = isDark ? 'rgba(22,22,22,0.85)' : 'rgba(255,255,255,0.72)'
+  const projectTaskCounts = useMemo(() => {
+    const counts = new Map(projects.map(project => [project.id, 0]))
+
+    tasks.forEach(task => {
+      getTaskProjectIds(task).forEach(projectId => {
+        if (counts.has(projectId)) counts.set(projectId, (counts.get(projectId) ?? 0) + 1)
+      })
+    })
+
+    return counts
+  }, [projects, tasks])
 
   return (
     <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 16 }}>
@@ -1424,7 +1536,7 @@ const ProjectsOverview: React.FC<{
           gap: 12,
         }}>
           {projects.map(project => {
-            const taskCount = tasks.filter(task => taskBelongsToProject(task, project.id)).length
+            const taskCount = projectTaskCounts.get(project.id) ?? 0
             return (
               <Card
                 key={project.id}
@@ -1485,7 +1597,11 @@ const MainApp: React.FC = () => {
   const [searchQuery, setSearchQuery] = useUserPreference('workspaceSearchQuery')
   const [, setTaskGlobalFilter] = useUserPreference('taskGlobalFilter')
   const filterPid = route.view === 'project' ? route.projectId : undefined
-  const currentProject = projects.find(p => p.id === filterPid)
+  const projectById = useMemo(
+    () => new Map(projects.map(project => [project.id, project])),
+    [projects],
+  )
+  const currentProject = filterPid ? projectById.get(filterPid) : undefined
   const selectedMenuKey = getRouteMenuKey(route)
   const goHome = useCallback(() => {
     window.history.pushState(null, '', '/')
@@ -1847,11 +1963,19 @@ const MainApp: React.FC = () => {
                         </Button>
                       )}
                     </div>
-                    <TasksTable
-                      onEdit={openEditTask}
-                      onAddSubtask={(task) => openEditTask(null, task.projectId || task.projectIds[0] || filterPid, task.id)}
-                      filterPid={filterPid}
-                    />
+                    <React.Suspense
+                      fallback={(
+                        <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                          <Spin />
+                        </div>
+                      )}
+                    >
+                      <TasksTable
+                        onEdit={openEditTask}
+                        onAddSubtask={(task) => openEditTask(null, task.projectId || task.projectIds[0] || filterPid, task.id)}
+                        filterPid={filterPid}
+                      />
+                    </React.Suspense>
                   </div>
                 </div>
               )}
@@ -1949,8 +2073,6 @@ const useMobileDetect = () => {
 
 // ─── ROOT ─────────────────────────────────────────────────────────────────────
 
-import MobileApp from './MobileApp'
-
 const AuthenticatedShell: React.FC = () => {
   const { isAuthenticated, loading } = useAuth()
   const isMobile = useMobileDetect()
@@ -1960,7 +2082,13 @@ const AuthenticatedShell: React.FC = () => {
   return (
     <AppDataProvider>
       <TaskEditProvider>
-        {isMobile ? <MobileApp /> : <MainApp />}
+        {isMobile ? (
+          <React.Suspense fallback={null}>
+            <MobileApp />
+          </React.Suspense>
+        ) : (
+          <MainApp />
+        )}
       </TaskEditProvider>
     </AppDataProvider>
   )
