@@ -210,8 +210,8 @@ export const AppLogo: React.FC<{ collapsed: boolean; onClick: () => void }> = ({
 // ─── TASK DRAWER ──────────────────────────────────────────────────────────────
 
 const PageHeader: React.FC<{
-  title: string
-  description: string
+  title: React.ReactNode
+  description?: React.ReactNode
   action?: React.ReactNode
 }> = ({ title, description, action }) => (
   <div style={{
@@ -224,9 +224,11 @@ const PageHeader: React.FC<{
   }}>
     <Space orientation="vertical" size={0} style={{ minWidth: 0, flex: '1 1 220px' }}>
       <Text strong style={{ fontSize: 18 }}>{title}</Text>
-      <Text type="secondary" style={{ fontSize: 12 }}>
-        {description}
-      </Text>
+      {description && (
+        <Text type="secondary" style={{ fontSize: 12 }}>
+          {description}
+        </Text>
+      )}
     </Space>
     {action ? <div style={{ flexShrink: 0 }}>{action}</div> : null}
   </div>
@@ -625,54 +627,26 @@ const ProjectHero: React.FC<{
   project: Project
   onEdit: () => void
 }> = ({ project, onEdit }) => {
-  const { isDark } = useTheme()
-
   const c = project.color
-  const border = isDark ? '#3a3a3a' : 'rgba(0,0,0,0.08)'
 
   return (
-    <div style={{
-      marginBottom: 20,
-      position: 'relative',
-      overflow: 'hidden',
-      borderTop: `1px solid ${border}`,
-      borderRight: `1px solid ${border}`,
-      borderBottom: `1px solid ${border}`,
-      borderLeft: `4px solid ${c}`,
-      background: isDark
-        ? `linear-gradient(135deg, ${c}18 0%, ${c}06 40%, transparent 70%)`
-        : `linear-gradient(135deg, ${c}12 0%, ${c}05 40%, transparent 70%)`,
-      backdropFilter: 'blur(20px)',
-      WebkitBackdropFilter: 'blur(20px)',
-    }}>
-      {/* top colour stripe */}
-      <div style={{ height: 3, background: `linear-gradient(90deg, ${c} 0%, ${c}00 100%)` }} />
-
-      <div style={{ padding: '20px 24px 18px' }}>
-        {/* title row */}
-        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, marginBottom: 6 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <div style={{ width: 14, height: 14, background: c, flexShrink: 0, marginTop: 2 }} />
-            <Text style={{ fontSize: 22, fontWeight: 700, lineHeight: 1.2 }}>{project.name}</Text>
-          </div>
+    <div style={{ marginBottom: 20 }}>
+      <PageHeader
+        title={
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+            <span style={{ display: 'inline-block', width: 12, height: 12, background: c, borderRadius: 3 }} />
+            <span>{project.name}</span>
+          </span>
+        }
+        description={project.description}
+        action={
           <Tooltip title="Editar projeto">
-            <Button
-              type="text"
-              size="small"
-              icon={<EditOutlined />}
-              onClick={onEdit}
-              style={{ opacity: 0.5, flexShrink: 0 }}
-            />
+            <Button icon={<EditOutlined />} onClick={onEdit}>
+              Editar
+            </Button>
           </Tooltip>
-        </div>
-
-        {/* description */}
-        {project.description && (
-          <Text type="secondary" style={{ fontSize: 13, display: 'block', paddingLeft: 24 }}>
-            {project.description}
-          </Text>
-        )}
-      </div>
+        }
+      />
     </div>
   )
 }

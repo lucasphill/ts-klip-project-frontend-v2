@@ -35,6 +35,8 @@ export const getCustomFieldValueLabel = (field: CustomField, value: unknown) => 
   if (field.type === 'date' && typeof value === 'string') {
     const normalizedDate = value.split('T')[0]
     if (!normalizedDate) return ''
+    const parts = normalizedDate.split('-')
+    if (parts.length === 3) return `${parts[2]}/${parts[1]}/${parts[0]}`
     return new Date(`${normalizedDate}T12:00:00`).toLocaleDateString('pt-BR')
   }
 
@@ -43,5 +45,7 @@ export const getCustomFieldValueLabel = (field: CustomField, value: unknown) => 
 
 export const getDueDateLabel = (value?: string) => {
   if (!value) return ''
+  const parts = value.split('T')[0].split('-')
+  if (parts.length === 3) return `${parts[2]}/${parts[1]}/${parts[0]}`
   return new Date(`${value.split('T')[0]}T12:00:00`).toLocaleDateString('pt-BR')
 }

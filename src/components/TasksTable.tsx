@@ -80,6 +80,8 @@ const getCustomFieldValueLabel = (field: CustomField, value: unknown) => {
   if (field.type === 'date' && typeof value === 'string') {
     const normalizedDate = value.split('T')[0]
     if (!normalizedDate) return ''
+    const parts = normalizedDate.split('-')
+    if (parts.length === 3) return `${parts[2]}/${parts[1]}/${parts[0]}`
     return new Date(`${normalizedDate}T12:00:00`).toLocaleDateString('pt-BR')
   }
 
@@ -110,6 +112,8 @@ const renderCustomFieldValue = (field: CustomField, value: unknown) => {
 
 const getDueDateLabel = (value?: string) => {
   if (!value) return ''
+  const parts = value.split('T')[0].split('-')
+  if (parts.length === 3) return `${parts[2]}/${parts[1]}/${parts[0]}`
   return new Date(`${value.split('T')[0]}T12:00:00`).toLocaleDateString('pt-BR')
 }
 
@@ -819,16 +823,13 @@ export const TasksTable: React.FC<{
         scroll-behavior: smooth;
       }
       .klip-tr {
-        contain: layout paint style;
         background: var(--klip-row-bg);
       }
       .klip-tr:hover > td {
         background: var(--klip-row-hover-bg) !important;
       }
       .klip-tr > td {
-        transition:
-          background var(--klip-motion-fast) var(--klip-motion-ease-out),
-          box-shadow var(--klip-motion-fast) var(--klip-motion-ease-out);
+        transition: background var(--klip-motion-fast) var(--klip-motion-ease-out);
       }
       .klip-td-sticky {
         background: var(--klip-row-bg);
